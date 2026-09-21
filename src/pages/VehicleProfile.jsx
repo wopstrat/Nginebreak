@@ -572,45 +572,50 @@ export default function VehicleProfile() {
                 No members yet. Invite your co-owners below.
               </div>
             ) : (
-              members.map((m) => (
-                <div key={m.user_id} className="member-row">
-                  <div className="member-avatar">
-                    {m.display_name?.[0]?.toUpperCase() || "?"}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>
-                      {m.display_name}
-                      {m.user_id === currentUser?.id && (
-                        <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontWeight: 400, marginLeft: 6 }}>
-                          (You)
-                        </span>
-                      )}
+              members.map((m, idx) => {
+                const isCurrentUser =
+                  (m.user_id && currentUser?.id && m.user_id === currentUser.id) ||
+                  (m.email && currentUser?.email && m.email.toLowerCase() === currentUser.email.toLowerCase());
+                return (
+                  <div key={m.user_id || m.email || idx} className="member-row">
+                    <div className="member-avatar">
+                      {m.display_name?.[0]?.toUpperCase() || m.email?.[0]?.toUpperCase() || "?"}
                     </div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 1 }}>
-                      {m.joined_at
-                        ? `Joined ${new Date(m.joined_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
-                        : "Member"}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>
+                        {m.display_name || m.email}
+                        {isCurrentUser && (
+                          <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontWeight: 400, marginLeft: 6 }}>
+                            (You)
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 1 }}>
+                        {m.joined_at
+                          ? `Joined ${new Date(m.joined_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
+                          : "Member"}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "3px 10px",
+                        borderRadius: 20,
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        background: m.role === "owner" ? "var(--accent-light)" : "var(--bg-page)",
+                        color: m.role === "owner" ? "var(--accent-color)" : "var(--text-muted)",
+                        border: `1px solid ${m.role === "owner" ? "var(--accent-border)" : "var(--border-color)"}`,
+                      }}
+                    >
+                      {m.role === "owner" && <Crown size={10} />}
+                      {m.role === "owner" ? "Owner" : "Member"}
                     </div>
                   </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "3px 10px",
-                      borderRadius: 20,
-                      fontSize: "0.7rem",
-                      fontWeight: 700,
-                      background: m.role === "owner" ? "var(--accent-light)" : "var(--bg-page)",
-                      color: m.role === "owner" ? "var(--accent-color)" : "var(--text-muted)",
-                      border: `1px solid ${m.role === "owner" ? "var(--accent-border)" : "var(--border-color)"}`,
-                    }}
-                  >
-                    {m.role === "owner" && <Crown size={10} />}
-                    {m.role === "owner" ? "Owner" : "Member"}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -619,49 +624,75 @@ export default function VehicleProfile() {
             <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-primary)", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
               <UserPlus size={15} /> Invite a Member
             </div>
-            <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: 12 }}>
-              Enter the email address they used to register on NGINEBREAK.
-            </div>
-
-            {inviteError && (
-              <div className="auth-error" style={{ marginBottom: 10 }}>
-                <AlertTriangle size={14} />
-                <span>{inviteError}</span>
-              </div>
-            )}
-            {inviteSuccess && (
-              <div className="auth-success" style={{ marginBottom: 10 }}>
-                <CheckCircle2 size={14} />
-                <span>{inviteSuccess}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleInvite}>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div className="auth-input-wrap" style={{ flex: 1 }}>
-                  <Mail size={15} className="auth-input-icon" />
-                  <input
-                    type="email"
-                    className="auth-input"
-                    placeholder="friend@email.com"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <button
-                  type="submit"
+            {!currentUser ? (
+              <div style={{ marginTop: 8 }}>
+                <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 12 }}>
+                  Guest users cannot invite members to garages. Please log in or sign up to add members.
+                </p>
+                <Link
+                  to="/login"
                   className="btn-orange"
-                  disabled={inviting}
-                  style={{ padding: "10px 16px", flexShrink: 0 }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "8px 14px",
+                    textDecoration: "none",
+                    fontSize: "0.8rem",
+                    borderRadius: 8,
+                    fontWeight: 600,
+                  }}
                 >
-                  {inviting ? "Adding…" : "Invite"}
-                </button>
+                  Log In or Register
+                </Link>
               </div>
-            </form>
-            <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 8, marginBottom: 0 }}>
-              The invited person must have an existing NGINEBREAK account.
-            </p>
+            ) : (
+              <>
+                <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: 12 }}>
+                  Enter the email address they used to register on NGINEBREAK.
+                </div>
+
+                {inviteError && (
+                  <div className="auth-error" style={{ marginBottom: 10 }}>
+                    <AlertTriangle size={14} />
+                    <span>{inviteError}</span>
+                  </div>
+                )}
+                {inviteSuccess && (
+                  <div className="auth-success" style={{ marginBottom: 10 }}>
+                    <CheckCircle2 size={14} />
+                    <span>{inviteSuccess}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleInvite}>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div className="auth-input-wrap" style={{ flex: 1 }}>
+                      <Mail size={15} className="auth-input-icon" />
+                      <input
+                        type="email"
+                        className="auth-input"
+                        placeholder="friend@email.com"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="btn-orange"
+                      disabled={inviting}
+                      style={{ padding: "10px 16px", flexShrink: 0 }}
+                    >
+                      {inviting ? "Adding…" : "Invite"}
+                    </button>
+                  </div>
+                </form>
+                <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 8, marginBottom: 0 }}>
+                  The invited person must have an existing NGINEBREAK account.
+                </p>
+              </>
+            )}
           </div>
         </div>
       )}

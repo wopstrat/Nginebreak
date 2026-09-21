@@ -821,8 +821,11 @@ class StorageService {
   // Invite Member by email
   // ==========================================
   async inviteMember(vehicleId, email) {
-    if (!isSupabaseConfigured() || !supabase) {
-      throw new Error("Supabase is required for inviting members.");
+    const authUser = await getCurrentAuthUser();
+
+    // Guest users cannot invite members to garages
+    if (!isSupabaseConfigured() || !supabase || !authUser) {
+      throw new Error("Guest users cannot invite members. Please log in or register an account.");
     }
 
     const cleanEmail = email.toLowerCase().trim();
@@ -871,7 +874,16 @@ class StorageService {
           email: cleanEmail,
           password: "VerifyUserExistsPass_" + Math.random().toString(36),
         });
-        if (authCheckErr?.message?.toLowerCase().includes("already registered")) {
+        const errMsg = authCheckErr?.message?.toLowerCase() || "";
+        const errCode = authCheckErr?.code?.toLowerCase() || "";
+        if (
+          errMsg.includes("already registered") ||
+          errMsg.includes("already exists") ||
+          errMsg.includes("registered") ||
+          errCode.includes("email_exists") ||
+          errCode.includes("user_already_exists") ||
+          authCheckErr?.status === 400
+        ) {
           // The user is definitely registered in Supabase Auth!
           targetProfile = {
             id: "user_" + cleanEmail.replace(/[^a-zA-Z0-9]/g, "_"),
@@ -882,22 +894,33 @@ class StorageService {
       } catch (_) {}
     }
 
+    // 4. Fallback for invitations: any valid email can be added as a garage member
+    if (!targetProfile && cleanEmail.includes("@")) {
+      targetProfile = {
+        id: "invited_" + cleanEmail.replace(/[^a-zA-Z0-9]/g, "_"),
+        display_name: cleanEmail.split("@")[0],
+        email: cleanEmail,
+      };
+    }
+
     if (!targetProfile) {
       throw new Error(
-        `No user found with email "${email}". Ask them to register on NGINEBREAK first.`
+        `Please enter a valid email address to invite.`
       );
     }
 
     // Check if already a member locally or in cloud
     let isAlreadyMember = false;
     try {
-      const { data: existing } = await supabase
-        .from("garage_members")
-        .select("id")
-        .eq("vehicle_id", vehicleId)
-        .eq("user_id", targetProfile.id)
-        .maybeSingle();
-      if (existing) isAlreadyMember = true;
+      if (targetProfile.id && !targetProfile.id.startsWith("user_") && !targetProfile.id.startsWith("invited_")) {
+        const { data: existing } = await supabase
+          .from("garage_members")
+          .select("id")
+          .eq("vehicle_id", vehicleId)
+          .eq("user_id", targetProfile.id)
+          .maybeSingle();
+        if (existing) isAlreadyMember = true;
+      }
     } catch (_) {}
 
     const data = await this.getData();
@@ -910,18 +933,17 @@ class StorageService {
       vehicle.members.some(
         (m) =>
           (m.user_id && targetProfile.id && m.user_id === targetProfile.id) ||
-          (m.email && m.email.toLowerCase() === cleanEmail) ||
-          (m.display_name && m.display_name.toLowerCase() === cleanEmail.toLowerCase())
+          (m.email && m.email.toLowerCase() === cleanEmail)
       )
     ) {
       throw new Error(
-        `${targetProfile.display_name || "This user"} is already a member of this garage.`
+        `${targetProfile.display_name || cleanEmail} is already a member of this garage.`
       );
     }
 
     const newMemberItem = {
       user_id: targetProfile.id,
-      display_name: targetProfile.display_name,
+      display_name: targetProfile.display_name || cleanEmail.split("@")[0],
       email: cleanEmail,
       role: "member",
       joined_at: new Date().toISOString(),
@@ -934,7 +956,7 @@ class StorageService {
       user_id: m.user_id,
       display_name: m.display_name,
       email: m.email || null,
-      role: m.role,
+      role: m.role || "member",
       joined_at: m.joined_at,
     }));
 
