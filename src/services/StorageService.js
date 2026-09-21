@@ -106,6 +106,25 @@ function getCleanMedia(mediaArray) {
   return mediaArray.filter((m) => !m || !m._is_member_registry);
 }
 
+function getDeletedVehicleIds() {
+  try {
+    const raw = localStorage.getItem("nginebreak_deleted_vehicle_ids");
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function addDeletedVehicleId(id) {
+  try {
+    const list = getDeletedVehicleIds();
+    if (!list.includes(id)) {
+      list.push(id);
+      localStorage.setItem("nginebreak_deleted_vehicle_ids", JSON.stringify(list));
+    }
+  } catch (_) {}
+}
+
 class StorageService {
   async init(storageKey = "garage_data_guest") {
     const data = await localforage.getItem(storageKey);
@@ -121,6 +140,7 @@ class StorageService {
     const authUser = await getCurrentAuthUser();
     const storageKey = getStorageKey(authUser?.id);
     await this.init(storageKey);
+    const deletedIds = getDeletedVehicleIds();
 
     let localData = await localforage.getItem(storageKey);
     if (!localData) {
@@ -136,6 +156,9 @@ class StorageService {
 
     // Guest / unauthenticated mode — use local guest storage directly
     if (!isSupabaseConfigured() || !supabase || !authUser) {
+      if (localData?.vehicles) {
+        localData.vehicles = localData.vehicles.filter((v) => !deletedIds.includes(v.id));
+      }
       return localData || DEFAULT_DATA;
     }
 
@@ -163,6 +186,7 @@ class StorageService {
         const { data: rawVehicles, error: vErr } = await vehiclesQuery;
         if (!vErr && rawVehicles) {
           dbVehicles = rawVehicles.filter((veh) => {
+            if (deletedIds.includes(veh.id)) return false;
             // Owned by this user
             if (veh.user_id === authUser.id) return true;
             // Shared via garage_members table
@@ -284,9 +308,10 @@ class StorageService {
         };
       });
 
-      // 7. Prevent data loss: retain any local vehicles not yet in cloud, sync them
+      // 7. Retain any unsynced local vehicles not yet in cloud, skipping deleted ones
       if (localData?.vehicles && localData.vehicles.length > 0) {
         for (const locVeh of localData.vehicles) {
+          if (deletedIds.includes(locVeh.id)) continue;
           const existsInCloud = assembledVehicles.some((v) => v.id === locVeh.id);
           if (!existsInCloud && (locVeh.user_id === authUser.id || !locVeh.user_id)) {
             assembledVehicles.push(locVeh);
@@ -519,6 +544,9 @@ class StorageService {
   // Delete Vehicle
   // ==========================================
   async deleteVehicle(vehicleId) {
+    addDeletedVehicleId(vehicleId);
+
+    const authUser = await getCurrentAuthUser();
     if (isSupabaseConfigured() && supabase) {
       try {
         await supabase.from("garage_members").delete().eq("vehicle_id", vehicleId).catch(() => {});
@@ -527,18 +555,67 @@ class StorageService {
         await supabase.from("maintenance_modules").delete().eq("vehicle_id", vehicleId).catch(() => {});
 
         const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId);
-        if (error) {
-          console.error("[StorageService] Supabase delete vehicle error:", error.message);
+        if (error && authUser?.id) {
+          // If shared member (not owner), remove member row for this user
+          await supabase
+            .from("garage_members")
+            .delete()
+            .eq("vehicle_id", vehicleId)
+            .eq("user_id", authUser.id)
+            .catch(() => {});
         }
       } catch (err) {
         console.error("[StorageService] Supabase vehicle delete failed:", err.message);
       }
     }
 
-    const data = await this.getData().catch(() => DEFAULT_DATA);
-    if (data.vehicles) {
-      data.vehicles = data.vehicles.filter((v) => v.id !== vehicleId);
+    const storageKey = getStorageKey(authUser?.id);
+    let localData = await localforage.getItem(storageKey);
+    if (!localData) localData = { user: { name: "Enthusiast" }, vehicles: [] };
+
+    localData.vehicles = (localData.vehicles || []).filter((v) => v.id !== vehicleId);
+    await localforage.setItem(storageKey, localData);
+
+    return localData;
+  }
+
+  // ==========================================
+  // Update Vehicle (Make, Model, Year, Type, Odometer)
+  // ==========================================
+  async updateVehicle(vehicleId, updates) {
+    const authUser = await getCurrentAuthUser();
+    let data = await this.getData();
+    let vehicle = (data.vehicles || []).find((v) => v.id === vehicleId);
+    if (!vehicle) throw new Error("Vehicle not found");
+
+    if (updates.make) vehicle.make = updates.make;
+    if (updates.model) vehicle.model = updates.model;
+    if (updates.type) vehicle.type = updates.type;
+    if (updates.year) vehicle.year = parseInt(updates.year);
+    if (updates.current_odometer !== undefined) {
+      const odo = parseInt(updates.current_odometer);
+      vehicle.current_odometer = odo;
+      data.vehicles = recalculateVehicleMaintenance(data.vehicles, vehicleId, odo);
+      vehicle = data.vehicles.find((v) => v.id === vehicleId);
     }
+
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const payload = {};
+        if (updates.make) payload.make = updates.make;
+        if (updates.model) payload.model = updates.model;
+        if (updates.type) payload.type = updates.type;
+        if (updates.year) payload.year = parseInt(updates.year);
+        if (updates.current_odometer !== undefined)
+          payload.current_odometer = parseInt(updates.current_odometer);
+        payload.updated_at = new Date().toISOString();
+
+        await supabase.from("vehicles").update(payload).eq("id", vehicleId);
+      } catch (err) {
+        console.error("[StorageService] updateVehicle Supabase error:", err.message);
+      }
+    }
+
     await this.saveData(data);
     return data;
   }
@@ -593,6 +670,185 @@ class StorageService {
     if (!vehicle.maintenance_modules.some((m) => m.id === moduleId)) {
       vehicle.maintenance_modules.push(newModule);
     }
+    await this.saveData(data);
+    return data;
+  }
+
+  // ==========================================
+  // Update Maintenance Module
+  // ==========================================
+  async updateMaintenanceModule(vehicleId, moduleId, updatedParams) {
+    let data = await this.getData();
+    const vehicle = data.vehicles.find((v) => v.id === vehicleId);
+    if (!vehicle) throw new Error("Vehicle not found");
+
+    let mod = (vehicle.maintenance_modules || []).find((m) => m.id === moduleId);
+    if (!mod) throw new Error("Maintenance module not found");
+
+    if (updatedParams.name !== undefined) mod.name = updatedParams.name;
+    if (updatedParams.interval_km !== undefined)
+      mod.interval_km = updatedParams.interval_km ? parseInt(updatedParams.interval_km) : null;
+    if (updatedParams.interval_months !== undefined)
+      mod.interval_months = updatedParams.interval_months ? parseInt(updatedParams.interval_months) : null;
+    if (updatedParams.last_service_km !== undefined)
+      mod.last_service_km = updatedParams.last_service_km ? parseInt(updatedParams.last_service_km) : null;
+    if (updatedParams.last_service_date !== undefined)
+      mod.last_service_date = updatedParams.last_service_date || null;
+
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const payload = {};
+        if (updatedParams.name !== undefined) payload.name = mod.name;
+        if (updatedParams.interval_km !== undefined) payload.interval_km = mod.interval_km;
+        if (updatedParams.interval_months !== undefined) payload.interval_months = mod.interval_months;
+        if (updatedParams.last_service_km !== undefined) payload.last_service_km = mod.last_service_km;
+        if (updatedParams.last_service_date !== undefined) payload.last_service_date = mod.last_service_date;
+
+        await supabase.from("maintenance_modules").update(payload).eq("id", moduleId);
+      } catch (err) {
+        console.error("[StorageService] updateMaintenanceModule Supabase error:", err.message);
+      }
+    }
+
+    data.vehicles = recalculateVehicleMaintenance(
+      data.vehicles,
+      vehicleId,
+      vehicle.current_odometer
+    );
+    await this.saveData(data);
+    return data;
+  }
+
+  // ==========================================
+  // Delete Maintenance Module
+  // ==========================================
+  async deleteMaintenanceModule(vehicleId, moduleId) {
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase.from("maintenance_modules").delete().eq("id", moduleId);
+      } catch (err) {
+        console.error("[StorageService] deleteMaintenanceModule error:", err.message);
+      }
+    }
+
+    let data = await this.getData();
+    const vehicle = data.vehicles.find((v) => v.id === vehicleId);
+    if (vehicle) {
+      vehicle.maintenance_modules = (vehicle.maintenance_modules || []).filter(
+        (m) => m.id !== moduleId
+      );
+      data.vehicles = recalculateVehicleMaintenance(
+        data.vehicles,
+        vehicleId,
+        vehicle.current_odometer
+      );
+      await this.saveData(data);
+    }
+    return data;
+  }
+
+  // ==========================================
+  // Update Service History Record
+  // ==========================================
+  async updateServiceHistory(vehicleId, historyId, updatedParams) {
+    let data = await this.getData();
+    const vehicle = data.vehicles.find((v) => v.id === vehicleId);
+    if (!vehicle) throw new Error("Vehicle not found");
+
+    const record = (vehicle.service_history || []).find((h) => h.id === historyId);
+    if (!record) throw new Error("Service history record not found");
+
+    if (updatedParams.module_name) record.module_name = updatedParams.module_name;
+    if (updatedParams.odometer !== undefined) record.odometer = parseInt(updatedParams.odometer);
+    if (updatedParams.date) record.date = updatedParams.date;
+    if (updatedParams.notes !== undefined) record.notes = updatedParams.notes;
+
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const payload = {};
+        if (updatedParams.module_name) payload.module_name = record.module_name;
+        if (updatedParams.odometer !== undefined) payload.odometer = record.odometer;
+        if (updatedParams.date) payload.date = record.date;
+        if (updatedParams.notes !== undefined) payload.notes = record.notes;
+
+        await supabase.from("service_history").update(payload).eq("id", historyId);
+      } catch (err) {
+        console.error("[StorageService] updateServiceHistory Supabase error:", err.message);
+      }
+    }
+
+    await this.saveData(data);
+    return data;
+  }
+
+  // ==========================================
+  // Delete Service History Record
+  // ==========================================
+  async deleteServiceHistory(vehicleId, historyId) {
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase.from("service_history").delete().eq("id", historyId);
+      } catch (err) {
+        console.error("[StorageService] deleteServiceHistory error:", err.message);
+      }
+    }
+
+    let data = await this.getData();
+    const vehicle = data.vehicles.find((v) => v.id === vehicleId);
+    if (vehicle) {
+      vehicle.service_history = (vehicle.service_history || []).filter(
+        (h) => h.id !== historyId
+      );
+      await this.saveData(data);
+    }
+    return data;
+  }
+
+  // ==========================================
+  // Remove Garage Member
+  // ==========================================
+  async removeGarageMember(vehicleId, targetUserIdOrEmail) {
+    let data = await this.getData();
+    const vehicle = data.vehicles.find((v) => v.id === vehicleId);
+    if (!vehicle) throw new Error("Vehicle not found");
+
+    const cleanTarget = (targetUserIdOrEmail || "").toLowerCase().trim();
+
+    if (vehicle.members) {
+      vehicle.members = vehicle.members.filter(
+        (m) =>
+          m.user_id !== targetUserIdOrEmail &&
+          (m.email || "").toLowerCase() !== cleanTarget
+      );
+    }
+
+    const membersForCloud = (vehicle.members || []).map((m) => ({
+      user_id: m.user_id,
+      display_name: m.display_name,
+      email: m.email || null,
+      role: m.role || "member",
+      joined_at: m.joined_at,
+    }));
+
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase
+          .from("garage_members")
+          .delete()
+          .eq("vehicle_id", vehicleId)
+          .eq("user_id", targetUserIdOrEmail)
+          .catch(() => {});
+
+        await supabase
+          .from("vehicles")
+          .update({ members: membersForCloud, updated_at: new Date().toISOString() })
+          .eq("id", vehicleId)
+          .catch(() => {});
+      } catch (err) {
+        console.error("[StorageService] removeGarageMember error:", err.message);
+      }
+    }
+
     await this.saveData(data);
     return data;
   }

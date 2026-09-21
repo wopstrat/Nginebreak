@@ -189,6 +189,12 @@ export function GarageProvider({ children }) {
     );
   };
 
+  const updateVehicle = async (vehicleId, updates) => {
+    const data = await StorageService.updateVehicle(vehicleId, updates);
+    dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    return data;
+  };
+
   const deleteVehicle = async (vehicleId) => {
     const data = await StorageService.deleteVehicle(vehicleId);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
@@ -198,6 +204,36 @@ export function GarageProvider({ children }) {
   const addMaintenanceModule = async (vehicleId, params) => {
     const data = await StorageService.addMaintenanceModule(vehicleId, params);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+  };
+
+  const updateMaintenanceModule = async (vehicleId, moduleId, params) => {
+    const data = await StorageService.updateMaintenanceModule(vehicleId, moduleId, params);
+    dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    return data;
+  };
+
+  const deleteMaintenanceModule = async (vehicleId, moduleId) => {
+    const data = await StorageService.deleteMaintenanceModule(vehicleId, moduleId);
+    dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    return data;
+  };
+
+  const updateServiceHistory = async (vehicleId, historyId, params) => {
+    const data = await StorageService.updateServiceHistory(vehicleId, historyId, params);
+    dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    return data;
+  };
+
+  const deleteServiceHistory = async (vehicleId, historyId) => {
+    const data = await StorageService.deleteServiceHistory(vehicleId, historyId);
+    dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    return data;
+  };
+
+  const removeGarageMember = async (vehicleId, targetUserIdOrEmail) => {
+    const data = await StorageService.removeGarageMember(vehicleId, targetUserIdOrEmail);
+    dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    return data;
   };
 
   const updateOdometer = async (vehicleId, newOdometer) => {
@@ -262,8 +298,14 @@ export function GarageProvider({ children }) {
         updateUserProfile,
         // Garage
         addVehicle,
+        updateVehicle,
         deleteVehicle,
         addMaintenanceModule,
+        updateMaintenanceModule,
+        deleteMaintenanceModule,
+        updateServiceHistory,
+        deleteServiceHistory,
+        removeGarageMember,
         updateOdometer,
         rewindOdometer,
         getOdometerHistory,
