@@ -36,12 +36,17 @@ import {
   Camera,
   User,
   HelpCircle,
+<<<<<<< HEAD
   Users,
   Gauge,
   Sparkles,
 } from 'lucide-react';
 import UserGuideModal from '../components/UserGuideModal';
 import notificationService from '../services/NotificationService';
+=======
+} from 'lucide-react';
+import UserGuideModal from '../components/UserGuideModal';
+>>>>>>> 44a1432e292ae34961120febd5fcd58e02253a79
 
 const LEVELS = [
   { min: 0,   label: 'Driver',     emoji: '🚗' },
