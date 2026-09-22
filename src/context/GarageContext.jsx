@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect } from "react";
 import StorageService from "../services/StorageService";
 import { supabase, isSupabaseConfigured } from "../services/supabaseClient";
+import notificationService from "../services/NotificationService";
 
 const GarageContext = createContext();
 
@@ -107,6 +108,9 @@ export function GarageProvider({ children }) {
     try {
       const data = await StorageService.getData();
       dispatch({ type: "LOAD_DATA", data });
+      if (data?.vehicles) {
+        notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id);
+      }
     } catch (err) {
       console.error("[GarageContext] loadData failed:", err.message);
       dispatch({ type: "SET_LOADING", value: false });
@@ -239,6 +243,21 @@ export function GarageProvider({ children }) {
   const updateOdometer = async (vehicleId, newOdometer) => {
     const data = await StorageService.updateOdometer(vehicleId, newOdometer);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    const updatedVehicle = data.vehicles?.find((v) => v.id === vehicleId);
+    if (updatedVehicle) {
+      const updaterName =
+        state.currentUser?.user_metadata?.display_name ||
+        state.currentUser?.email?.split("@")[0] ||
+        state.user?.name ||
+        "You";
+      notificationService.notifyOdometerUpdate(
+        updatedVehicle,
+        newOdometer,
+        updaterName,
+        state.currentUser?.id
+      );
+      notificationService.checkMaintenanceNotifications([updatedVehicle], state.currentUser?.id);
+    }
   };
 
   const rewindOdometer = async (historyId, vehicleId) => {
@@ -265,6 +284,21 @@ export function GarageProvider({ children }) {
   const completeService = async (vehicleId, moduleId, odometer, date) => {
     const data = await StorageService.completeService(vehicleId, moduleId, odometer, date);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    const updatedVehicle = data.vehicles?.find((v) => v.id === vehicleId);
+    const mod = updatedVehicle?.maintenance_modules?.find((m) => m.id === moduleId);
+    if (updatedVehicle) {
+      const updaterName =
+        state.currentUser?.user_metadata?.display_name ||
+        state.currentUser?.email?.split("@")[0] ||
+        state.user?.name ||
+        "You";
+      notificationService.notifyServiceCompleted(
+        updatedVehicle,
+        mod?.name || "Service",
+        updaterName,
+        state.currentUser?.id
+      );
+    }
   };
 
   const addVehicleMedia = async (vehicleId, mediaItem) => {

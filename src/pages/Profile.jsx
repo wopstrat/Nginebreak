@@ -36,8 +36,12 @@ import {
   Camera,
   User,
   HelpCircle,
+  Users,
+  Gauge,
+  Sparkles,
 } from 'lucide-react';
 import UserGuideModal from '../components/UserGuideModal';
+import notificationService from '../services/NotificationService';
 
 const LEVELS = [
   { min: 0,   label: 'Driver',     emoji: '🚗' },
@@ -210,6 +214,59 @@ export default function Profile() {
     });
   }, [user]);
 
+  // Push Notifications State & Preferences
+  const [notifPermission, setNotifPermission] = useState(() =>
+    notificationService.getPermissionState()
+  );
+  const [notifPrefs, setNotifPrefs] = useState(() =>
+    notificationService.getPreferences(currentUser?.id)
+  );
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [testNotifSent, setTestNotifSent] = useState(false);
+
+  useEffect(() => {
+    setNotifPermission(notificationService.getPermissionState());
+    setNotifPrefs(notificationService.getPreferences(currentUser?.id));
+  }, [currentUser]);
+
+  const handleEnableNotifications = async () => {
+    setNotifLoading(true);
+    try {
+      const permission = await notificationService.requestPermission();
+      setNotifPermission(permission);
+      if (permission === 'granted') {
+        await notificationService.subscribeUser(currentUser?.id, currentUser?.email);
+        await notificationService.sendNotification({
+          title: '🔧 NGINEBREAK',
+          body: 'Notifications Enabled ✓ You will receive vehicle maintenance and garage updates.',
+          tag: 'nginebreak-welcome',
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to enable notifications:', err);
+    } finally {
+      setNotifLoading(false);
+    }
+  };
+
+  const handleToggleNotifPref = async (key, val) => {
+    const updated = { ...notifPrefs, [key]: val };
+    setNotifPrefs(updated);
+    await notificationService.savePreferences(currentUser?.id, updated);
+  };
+
+  const handleSendTestNotification = async () => {
+    const sent = await notificationService.sendNotification({
+      title: '🔧 NGINEBREAK',
+      body: 'Engine Oil is due soon.\nHonda Civic — 300 km remaining.',
+      tag: 'test-reminder',
+    });
+    if (sent) {
+      setTestNotifSent(true);
+      setTimeout(() => setTestNotifSent(false), 3500);
+    }
+  };
+
   // Handle Photo upload from Gallery
   const handleAvatarChange = async (e) => {
     const file = e.target.files?.[0];
@@ -282,6 +339,14 @@ export default function Profile() {
   const handleToggleViewMode = () => {
     const nextMode = adminViewMode === 'admin' ? 'user' : 'admin';
     setAdminViewMode(nextMode);
+  };
+
+  // Exit Admin Mode completely (deactivate all admin privileges)
+  const handleDeactivateAdmin = () => {
+    deactivateAdminMode();
+    setIsRealAdminUser(false);
+    setIsAdminView(false);
+    setAdminViewModeState('user');
   };
 
   // Stats
@@ -833,6 +898,189 @@ export default function Profile() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* ── USER NOTIFICATIONS SECTION ────────────────────── */}
+      <div
+        className="garage-card"
+        style={{
+          padding: '16px 18px',
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: notifPermission === 'granted' ? 6 : 10,
+            flexWrap: 'wrap',
+            gap: 6,
+          }}
+        >
+          <div
+            style={{
+              fontSize: '0.68rem',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <Bell size={13} color="var(--accent-color)" />
+            Notifications
+          </div>
+
+          {notifPermission === 'granted' && (
+            <span
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                color: 'var(--success-color, #10B981)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              Notifications Enabled ✓
+            </span>
+          )}
+        </div>
+
+        {notifPermission === 'unsupported' ? (
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '4px 0' }}>
+            Notifications are not available on this browser.
+          </div>
+        ) : notifPermission === 'denied' ? (
+          <div style={{ fontSize: '0.78rem', color: 'var(--danger-color, #EF4444)', padding: '4px 0', lineHeight: 1.45 }}>
+            Notifications are blocked. You can enable them from your browser/device settings.
+          </div>
+        ) : notifPermission !== 'granted' ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '6px 0',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', flex: 1, minWidth: 200 }}>
+              Receive maintenance due reminders and shared garage activity alerts.
+            </div>
+            <button
+              onClick={handleEnableNotifications}
+              disabled={notifLoading}
+              style={{
+                background: 'var(--accent-color)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '7px 14px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: notifLoading ? 'wait' : 'pointer',
+                fontFamily: 'inherit',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(255, 77, 0, 0.25)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Bell size={13} />
+              {notifLoading ? 'Enabling...' : 'Enable Notifications'}
+            </button>
+          </div>
+        ) : (
+          <div>
+            <SettingRow
+              icon={Wrench}
+              label="Maintenance Reminders"
+              desc="Alerts when vehicle service is due or approaching"
+              right={
+                <Toggle
+                  id="notif-pref-maintenance"
+                  checked={notifPrefs.maintenanceReminders}
+                  onChange={(e) => handleToggleNotifPref('maintenanceReminders', e.target.checked)}
+                />
+              }
+            />
+            <SettingRow
+              icon={Users}
+              label="Shared Garage Updates"
+              desc="Alerts when co-owners perform maintenance on your vehicle"
+              right={
+                <Toggle
+                  id="notif-pref-shared"
+                  checked={notifPrefs.sharedGarageUpdates}
+                  onChange={(e) => handleToggleNotifPref('sharedGarageUpdates', e.target.checked)}
+                />
+              }
+            />
+            <SettingRow
+              icon={Gauge}
+              label="Odometer Updates"
+              desc="Alerts when vehicle odometer is updated"
+              right={
+                <Toggle
+                  id="notif-pref-odometer"
+                  checked={notifPrefs.odometerUpdates}
+                  onChange={(e) => handleToggleNotifPref('odometerUpdates', e.target.checked)}
+                />
+              }
+            />
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: 12,
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <button
+                onClick={handleSendTestNotification}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 8,
+                  padding: '6px 12px',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <Sparkles size={12} color="var(--accent-color)" /> Send Test Notification
+              </button>
+
+              {testNotifSent && (
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    color: 'var(--success-color, #10B981)',
+                    fontWeight: 600,
+                  }}
+                >
+                  Sent! Check your device notifications.
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── ADMIN-ONLY SWITCHING OPTIONS ──────────────────── */}
