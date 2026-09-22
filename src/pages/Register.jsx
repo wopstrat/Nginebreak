@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useGarage } from "../context/GarageContext";
+import StorageService from "../services/StorageService";
 import { UserPlus, Mail, Lock, User, AlertCircle, CheckCircle, Info, ExternalLink } from "lucide-react";
 
 export default function Register() {
@@ -32,6 +33,7 @@ export default function Register() {
     setIsRateLimit(false);
     try {
       const result = await register(form.email, form.password, form.name);
+      StorageService.setOnboardingCompleted(form.email, false);
       
       // If Supabase has email confirmations disabled or auto-confirms, session exists immediately
       if (result?.session) {

@@ -1393,6 +1393,40 @@ class StorageService {
     await this.saveData(data);
     return data;
   }
+
+  // ==========================================
+  // Onboarding Status (per user email)
+  // ==========================================
+  isOnboardingCompleted(email) {
+    if (!email) return true;
+    const cleanEmail = email.toLowerCase().trim();
+    const key = `nginebreak_onboarding_completed_${cleanEmail}`;
+    const val = localStorage.getItem(key);
+    if (val === "true") return true;
+    if (val === "false") return false;
+
+    // Check pending onboarding flag for newly created accounts
+    const pendingKey = `nginebreak_pending_onboarding_${cleanEmail}`;
+    if (localStorage.getItem(pendingKey) === "true") {
+      return false;
+    }
+
+    // Existing users default to true (never affected)
+    return true;
+  }
+
+  setOnboardingCompleted(email, completed = true) {
+    if (!email) return;
+    const cleanEmail = email.toLowerCase().trim();
+    const key = `nginebreak_onboarding_completed_${cleanEmail}`;
+    localStorage.setItem(key, completed ? "true" : "false");
+    const pendingKey = `nginebreak_pending_onboarding_${cleanEmail}`;
+    if (completed) {
+      localStorage.removeItem(pendingKey);
+    } else {
+      localStorage.setItem(pendingKey, "true");
+    }
+  }
 }
 
 export default new StorageService();

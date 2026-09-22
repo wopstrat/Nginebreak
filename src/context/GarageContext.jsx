@@ -286,6 +286,9 @@ export function GarageProvider({ children }) {
   const setActiveVehicle = (id) =>
     dispatch({ type: "SET_ACTIVE_VEHICLE", id });
 
+  const isOnboardingCompleted = (email) => StorageService.isOnboardingCompleted(email);
+  const setOnboardingCompleted = (email, completed) => StorageService.setOnboardingCompleted(email, completed);
+
   return (
     <GarageContext.Provider
       value={{
@@ -294,6 +297,9 @@ export function GarageProvider({ children }) {
         login,
         register,
         logout,
+        // Onboarding
+        isOnboardingCompleted,
+        setOnboardingCompleted,
         // User Profile
         updateUserProfile,
         // Garage
