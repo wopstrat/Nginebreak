@@ -37,9 +37,19 @@ import {
   Sparkles
 } from "lucide-react";
 import { calculatePartLifePercent } from "../services/CalculationEngine";
+import UserGuideModal from "../components/UserGuideModal";
 
 export default function GarageDashboard() {
-  const { vehicles, user, currentUser, loading, logout, updateOdometer } = useGarage();
+  const {
+    vehicles,
+    user,
+    currentUser,
+    loading,
+    logout,
+    updateOdometer,
+    isOnboardingCompleted,
+    setOnboardingCompleted,
+  } = useGarage();
   const navigate = useNavigate();
 
   const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser));
@@ -47,6 +57,23 @@ export default function GarageDashboard() {
   const [adminViewMode, setAdminViewModeState] = useState(() => getAdminViewMode());
   const [adminSettings, setAdminSettings] = useState(() => getAdminSettings());
   const [backupExported, setBackupExported] = useState(false);
+
+  // First-time Onboarding state
+  const userEmail = currentUser?.email || user?.email;
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+
+  useEffect(() => {
+    if (userEmail && isOnboardingCompleted && !isOnboardingCompleted(userEmail)) {
+      setShowOnboardingModal(true);
+    }
+  }, [userEmail, isOnboardingCompleted]);
+
+  const handleFinishOnboarding = () => {
+    if (userEmail && setOnboardingCompleted) {
+      setOnboardingCompleted(userEmail, true);
+    }
+    setShowOnboardingModal(false);
+  };
 
   // Odometer modal state
   const [selectedVehicleForOdo, setSelectedVehicleForOdo] = useState(null);
@@ -706,6 +733,15 @@ export default function GarageDashboard() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* First-time Onboarding Modal */}
+      {showOnboardingModal && (
+        <UserGuideModal
+          mode="onboarding"
+          onClose={handleFinishOnboarding}
+          onComplete={handleFinishOnboarding}
+        />
       )}
     </div>
   );

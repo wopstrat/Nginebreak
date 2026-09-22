@@ -35,7 +35,9 @@ import {
   UserCheck,
   Camera,
   User,
+  HelpCircle,
 } from 'lucide-react';
+import UserGuideModal from '../components/UserGuideModal';
 
 const LEVELS = [
   { min: 0,   label: 'Driver',     emoji: '🚗' },
@@ -154,6 +156,8 @@ function SettingRow({ icon: Icon, label, desc, right, badge }) {
 
 export default function Profile() {
   const { vehicles, user, currentUser, logout, updateUserProfile } = useGarage();
+
+  const [showGuideModal, setShowGuideModal] = useState(false);
 
   // Admin status, view mode, and settings (restricted to configured VITE_ADMIN_EMAIL)
   const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser));
@@ -1029,6 +1033,62 @@ export default function Profile() {
         </div>
       )}
 
+      {/* ── Help Section ─────────────────────────────────── */}
+      <div className="garage-card" style={{ padding: '14px 18px', marginBottom: 12 }}>
+        {/* Section label */}
+        <div style={{
+          fontSize: '0.68rem',
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 8,
+        }}>
+          Help
+        </div>
+
+        <button
+          id="profile-help-nginebreak-works"
+          onClick={() => setShowGuideModal(true)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '6px 0',
+            textAlign: 'left',
+            fontFamily: 'inherit',
+          }}
+        >
+          <div style={{
+            width: 34,
+            height: 34,
+            borderRadius: 9,
+            background: 'var(--bg-page)',
+            border: '1px solid var(--border-color)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            color: 'var(--text-secondary)',
+          }}>
+            <HelpCircle size={15} />
+          </div>
+          <div style={{ flex: 1, textAlign: 'left' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              How NGINEBREAK Works
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 1 }}>
+              Quick guide to core features
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+        </button>
+      </div>
+
       {/* ── Sign Out Zone ───────────────────────────────── */}
       <div className="garage-card" style={{ padding: '14px 18px', marginBottom: 24 }}>
         <button
@@ -1073,6 +1133,14 @@ export default function Profile() {
           NGINEBREAK · {isAdminView ? 'ADMIN CONSOLE ACTIVE' : 'MVP v0.1.0'}
         </span>
       </div>
+
+      {/* ── User Guide Modal (How NGINEBREAK Works) ───────── */}
+      {showGuideModal && (
+        <UserGuideModal
+          mode="guide"
+          onClose={() => setShowGuideModal(false)}
+        />
+      )}
     </div>
   );
 }
