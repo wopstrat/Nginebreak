@@ -186,6 +186,9 @@ export function GarageProvider({ children }) {
     const createdVehicle = await StorageService.addVehicle(params);
     const data = await StorageService.getData();
     dispatch({ type: "LOAD_DATA", data });
+    if (data?.vehicles) {
+      notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id, true);
+    }
     return (
       (data?.vehicles && data.vehicles.find((v) => v.id === createdVehicle?.id)) ||
       (data?.vehicles && data.vehicles[data.vehicles.length - 1]) ||
@@ -196,6 +199,9 @@ export function GarageProvider({ children }) {
   const updateVehicle = async (vehicleId, updates) => {
     const data = await StorageService.updateVehicle(vehicleId, updates);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    if (data?.vehicles) {
+      notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id, true);
+    }
     return data;
   };
 
@@ -208,11 +214,17 @@ export function GarageProvider({ children }) {
   const addMaintenanceModule = async (vehicleId, params) => {
     const data = await StorageService.addMaintenanceModule(vehicleId, params);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    if (data?.vehicles) {
+      notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id, true);
+    }
   };
 
   const updateMaintenanceModule = async (vehicleId, moduleId, params) => {
     const data = await StorageService.updateMaintenanceModule(vehicleId, moduleId, params);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    if (data?.vehicles) {
+      notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id, true);
+    }
     return data;
   };
 

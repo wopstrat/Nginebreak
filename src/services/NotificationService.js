@@ -250,27 +250,29 @@ class NotificationService {
   /**
    * Check maintenance items and dispatch alerts based on CalculationEngine results
    */
-  async checkMaintenanceNotifications(vehicles, userId) {
+  async checkMaintenanceNotifications(vehicles, userId, force = false) {
     if (!vehicles || !Array.isArray(vehicles) || vehicles.length === 0) return;
     if (this.getPermissionState() !== "granted") return;
 
     const prefs = this.getPreferences(userId);
     if (!prefs.maintenanceReminders) return;
 
-    // Rate-limit checks to avoid multiple triggers within 10 minutes
     const now = Date.now();
-    if (now - this.lastCheckedTimestamp < 10 * 60 * 1000) return;
+    // Debounce rapid repeated checks unless forced
+    if (!force && now - this.lastCheckedTimestamp < 15 * 1000) return;
     this.lastCheckedTimestamp = now;
 
     for (const vehicle of vehicles) {
-      if (!vehicle.maintenance_modules || !Array.isArray(vehicle.maintenance_modules)) continue;
+      if (!vehicle || !vehicle.maintenance_modules || !Array.isArray(vehicle.maintenance_modules)) continue;
 
       const vehicleName =
         vehicle.name ||
-        `${vehicle.make || "Vehicle"} ${vehicle.model || ""}`.trim();
+        [vehicle.make, vehicle.model].filter(Boolean).join(" ") ||
+        "Your Vehicle";
       const currentOdometer = Number(vehicle.current_odometer) || 0;
 
       for (const mod of vehicle.maintenance_modules) {
+        if (!mod) continue;
         const calc = calculateMaintenanceStatus(mod, currentOdometer, new Date());
         const status = calc.status;
 
@@ -287,11 +289,15 @@ class NotificationService {
 
           if (status === STATUS.OVERDUE || status === STATUS.DUE) {
             title = "⚠️ NGINEBREAK";
-            const dueKmStr = calc.next_due_km ? `${calc.next_due_km.toLocaleString()} km` : "Due now";
-            body = `${mod.name} maintenance is due.\n${vehicleName} — ${dueKmStr}.`;
+            const dueKmStr = calc.next_due_km
+              ? `${calc.next_due_km.toLocaleString()} km`
+              : null;
+            body = dueKmStr
+              ? `${mod.name} maintenance is due.\n${vehicleName} — ${dueKmStr}.`
+              : `${mod.name} maintenance is due.\n${vehicleName}.`;
           } else if (status === STATUS.DUE_SOON) {
             if (calc.remaining_km !== null && calc.remaining_km <= 500) {
-              body = `${mod.name} is due soon.\n${vehicleName} — ${calc.remaining_km} km remaining.`;
+              body = `${mod.name} is due soon.\n${vehicleName} — ${calc.remaining_km.toLocaleString()} km remaining.`;
             } else if (calc.remaining_days !== null && calc.remaining_days <= 30) {
               body = `${mod.name} is due in ${calc.remaining_days} days.\n${vehicleName}.`;
             } else {

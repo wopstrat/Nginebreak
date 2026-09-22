@@ -1035,50 +1035,6 @@ export default function Profile() {
                 />
               }
             />
-
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingTop: 12,
-                flexWrap: 'wrap',
-                gap: 8,
-              }}
-            >
-              <button
-                onClick={handleSendTestNotification}
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 8,
-                  padding: '6px 12px',
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.74rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  transition: 'background 0.15s ease',
-                }}
-              >
-                <Sparkles size={12} color="var(--accent-color)" /> Send Test Notification
-              </button>
-
-              {testNotifSent && (
-                <span
-                  style={{
-                    fontSize: '0.72rem',
-                    color: 'var(--success-color, #10B981)',
-                    fontWeight: 600,
-                  }}
-                >
-                  Sent! Check your device notifications.
-                </span>
-              )}
-            </div>
           </div>
         )}
       </div>
@@ -1238,6 +1194,68 @@ export default function Profile() {
               />
             }
           />
+
+          {/* 8. Superuser Push Notification Test Broadcast */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '13px 0',
+              borderBottom: '1px solid var(--border-color)',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 9,
+                  background: 'var(--bg-page)',
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent-color)',
+                  flexShrink: 0,
+                }}
+              >
+                <Sparkles size={15} />
+              </div>
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Push Notification Test Broadcast
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  Send a sample vehicle maintenance alert to test device notifications
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button
+                onClick={handleSendTestNotification}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 8,
+                  padding: '5px 12px',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Test Alert
+              </button>
+              {testNotifSent && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--success-color, #10B981)', fontWeight: 600 }}>
+                  Sent!
+                </span>
+              )}
+            </div>
+          </div>
 
           {/* Deactivate Admin Mode button */}
           <div style={{ paddingTop: 14, textAlign: 'right' }}>
