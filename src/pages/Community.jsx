@@ -23,7 +23,7 @@ import {
 
 export default function Community() {
   const { currentUser, user, vehicles } = useGarage();
-  const isAdmin = isUserAdmin(currentUser) || isRealAdmin(currentUser);
+  const isAdmin = isUserAdmin(currentUser, user) || isRealAdmin(currentUser, user);
 
   const [activeTab, setActiveTab] = useState("for_you"); // 'for_you' | 'following' | 'my_posts'
   const [posts, setPosts] = useState(() => communityService.getPosts());

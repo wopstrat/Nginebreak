@@ -164,8 +164,8 @@ export default function Profile() {
   const [showGuideModal, setShowGuideModal] = useState(false);
 
   // Admin status, view mode, and settings (restricted to configured VITE_ADMIN_EMAIL)
-  const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser));
-  const [isAdminView, setIsAdminView] = useState(() => isUserAdmin(currentUser));
+  const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser, user));
+  const [isAdminView, setIsAdminView] = useState(() => isUserAdmin(currentUser, user));
   const [adminViewMode, setAdminViewModeState] = useState(() => getAdminViewMode());
   const [adminSettings, setAdminSettings] = useState(() => getAdminSettings());
 
@@ -186,13 +186,13 @@ export default function Profile() {
 
   // Sync admin state
   useEffect(() => {
-    setIsRealAdminUser(isRealAdmin(currentUser));
-    setIsAdminView(isUserAdmin(currentUser));
+    setIsRealAdminUser(isRealAdmin(currentUser, user));
+    setIsAdminView(isUserAdmin(currentUser, user));
     setAdminViewModeState(getAdminViewMode());
 
     const handleStateChange = () => {
-      setIsRealAdminUser(isRealAdmin(currentUser));
-      setIsAdminView(isUserAdmin(currentUser));
+      setIsRealAdminUser(isRealAdmin(currentUser, user));
+      setIsAdminView(isUserAdmin(currentUser, user));
       setAdminViewModeState(getAdminViewMode());
       setAdminSettings(getAdminSettings());
     };
@@ -202,7 +202,7 @@ export default function Profile() {
       window.removeEventListener('admin_state_changed', handleStateChange);
       window.removeEventListener('admin_settings_changed', handleStateChange);
     };
-  }, [currentUser]);
+  }, [currentUser, user]);
 
   // Sync bioForm when user changes
   useEffect(() => {

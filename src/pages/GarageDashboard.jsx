@@ -45,8 +45,8 @@ export default function GarageDashboard() {
   } = useGarage();
   const navigate = useNavigate();
 
-  const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser));
-  const [isAdmin, setIsAdmin] = useState(() => isUserAdmin(currentUser));
+  const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser, user));
+  const [isAdmin, setIsAdmin] = useState(() => isUserAdmin(currentUser, user));
   const [adminViewMode, setAdminViewModeState] = useState(() => getAdminViewMode());
   const [adminSettings, setAdminSettings] = useState(() => getAdminSettings());
   const [backupExported, setBackupExported] = useState(false);
@@ -102,13 +102,13 @@ export default function GarageDashboard() {
   const [odoSaving, setOdoSaving] = useState(false);
 
   useEffect(() => {
-    setIsRealAdminUser(isRealAdmin(currentUser));
-    setIsAdmin(isUserAdmin(currentUser));
+    setIsRealAdminUser(isRealAdmin(currentUser, user));
+    setIsAdmin(isUserAdmin(currentUser, user));
     setAdminViewModeState(getAdminViewMode());
 
     const handleSync = () => {
-      setIsRealAdminUser(isRealAdmin(currentUser));
-      setIsAdmin(isUserAdmin(currentUser));
+      setIsRealAdminUser(isRealAdmin(currentUser, user));
+      setIsAdmin(isUserAdmin(currentUser, user));
       setAdminViewModeState(getAdminViewMode());
       setAdminSettings(getAdminSettings());
     };
@@ -118,7 +118,7 @@ export default function GarageDashboard() {
       window.removeEventListener("admin_state_changed", handleSync);
       window.removeEventListener("admin_settings_changed", handleSync);
     };
-  }, [currentUser]);
+  }, [currentUser, user]);
 
   const activeVehicle = vehicles[0] || null;
 

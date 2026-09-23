@@ -29,32 +29,61 @@ export const DEFAULT_ADMIN_SETTINGS = {
 /**
  * Checks if the user is an Admin AND currently in Admin View Mode
  */
-export function isUserAdmin(currentUser) {
-  if (!isRealAdmin(currentUser)) return false;
+export function isUserAdmin(currentUser, userProfile) {
+  if (!isRealAdmin(currentUser, userProfile)) return false;
   return getAdminViewMode() !== "user";
 }
 
 /**
- * Checks if the user has Admin rights (restricted to the configured admin email)
+ * Checks if the user has Admin rights
+ * Checks localStorage, currentUser (email, display_name, name, role), and userProfile (name, display_name, email, role)
  */
-export function isRealAdmin(currentUser) {
+export function isRealAdmin(currentUser, userProfile) {
   // 1. If admin mode is active in localStorage, return true
-  if (localStorage.getItem(STORAGE_KEY_ADMIN_MODE) === "true") {
-    return true;
-  }
+  try {
+    if (localStorage.getItem(STORAGE_KEY_ADMIN_MODE) === "true") {
+      return true;
+    }
+  } catch (_) {}
 
   // 2. Check authenticated user credentials & metadata
   if (currentUser) {
     const userEmail = (currentUser.email || "").toLowerCase().trim();
     const envAdminEmail = (import.meta.env.VITE_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL || "").toLowerCase().trim();
+    const metaName = (
+      currentUser.user_metadata?.display_name ||
+      currentUser.user_metadata?.name ||
+      currentUser.user_metadata?.full_name ||
+      ""
+    ).toLowerCase().trim();
+    const metaRole = (currentUser.user_metadata?.role || currentUser.role || "").toLowerCase().trim();
 
     if (
       (envAdminEmail && userEmail === envAdminEmail) ||
       userEmail.includes("admin") ||
-      currentUser?.user_metadata?.role === "admin" ||
+      metaName.includes("admin") ||
+      metaRole === "admin" ||
       currentUser?.user_metadata?.is_admin === true ||
-      currentUser?.role === "admin" ||
       currentUser?.is_admin === true
+    ) {
+      try {
+        localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
+      } catch (_) {}
+      return true;
+    }
+  }
+
+  // 3. Check userProfile object (from local state / Supabase profiles / context user)
+  if (userProfile) {
+    const profileName = (userProfile.name || userProfile.display_name || "").toLowerCase().trim();
+    const profileEmail = (userProfile.email || "").toLowerCase().trim();
+    const profileRole = (userProfile.role || "").toLowerCase().trim();
+
+    if (
+      profileName.includes("admin") ||
+      profileEmail.includes("admin") ||
+      profileRole === "admin" ||
+      userProfile.is_admin === true
     ) {
       try {
         localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
