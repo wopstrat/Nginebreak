@@ -1384,12 +1384,27 @@ a { text-decoration: none; }
     flex-direction: column;
     gap: 18px;
   }
+  .dashboard-side-col {
+    display: none !important;
+  }
 }
 
 @media (max-width: 768px) {
   .desktop-search-container {
     display: none !important;
   }
+}
+
+@media (max-width: 420px) {
+  .coming-soon-feature-card {
+    padding: 10px 4px 10px !important;
+  }
+}
+
+.vehicle-dashboard-card:hover {
+  border-color: var(--border-hover) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06) !important;
 }
 
 .maintenance-battery-card:hover {
