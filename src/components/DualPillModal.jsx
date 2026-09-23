@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { X, ChevronLeft, MoreVertical, CheckCircle2, AlertTriangle, Clock, Gauge, Flame, Info } from 'lucide-react';
+import { X, ChevronLeft, Trash2, CheckCircle2, AlertTriangle, Clock, Gauge, Flame, Info } from 'lucide-react';
 import { STATUS, getDualPillComparison, calculatePartLifePercent } from '../services/CalculationEngine';
 import { useGarage } from '../context/GarageContext';
 
 export default function DualPillModal({ mod, vehicle, onClose, onServiceCompleted }) {
-  const { completeService } = useGarage();
+  const { completeService, deleteMaintenanceModule } = useGarage();
   const [showCompleteForm, setShowCompleteForm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedOdo, setCompletedOdo] = useState(vehicle?.current_odometer || 0);
   const [completedDate, setCompletedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   if (!mod || !vehicle) return null;
 
@@ -28,6 +30,18 @@ export default function DualPillModal({ mod, vehicle, onClose, onServiceComplete
       alert("Error completing service: " + err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteService = async () => {
+    setDeleting(true);
+    try {
+      await deleteMaintenanceModule(vehicle.id, mod.id);
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch (err) {
+      alert("Error deleting service: " + (err.message || err));
+      setDeleting(false);
     }
   };
 
@@ -64,7 +78,9 @@ export default function DualPillModal({ mod, vehicle, onClose, onServiceComplete
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Back"
             style={{
               background: 'none',
               border: 'none',
@@ -72,29 +88,144 @@ export default function DualPillModal({ mod, vehicle, onClose, onServiceComplete
               color: 'var(--text-secondary)',
               padding: 4,
               display: 'flex',
-              alignItems: 'center'
+              alignItems: 'center',
+              borderRadius: 8
             }}
           >
             <ChevronLeft size={22} />
           </button>
 
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', textAlign: 'center', flex: 1, padding: '0 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {mod.name}
           </h3>
 
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--text-muted)',
-              padding: 4
-            }}
-          >
-            <X size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              title="Delete service"
+              aria-label="Delete service"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                padding: 6,
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.color = 'var(--danger-color, #ef4444)';
+                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.color = 'var(--text-muted)';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <Trash2 size={19} />
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                padding: 6,
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.color = 'var(--text-primary)';
+                e.currentTarget.style.backgroundColor = 'var(--bg-page)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.color = 'var(--text-muted)';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div 
+            className="modal-backdrop" 
+            onClick={() => !deleting && setShowDeleteConfirm(false)} 
+            style={{ zIndex: 1300, background: 'rgba(0, 0, 0, 0.7)' }}
+          >
+            <div 
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: 'var(--bg-card)',
+                borderRadius: 20,
+                width: '100%',
+                maxWidth: 360,
+                padding: '24px 20px',
+                border: '1px solid var(--border-color)',
+                boxShadow: '0 20px 48px rgba(0, 0, 0, 0.3)',
+                textAlign: 'center',
+                animation: 'modalFadeIn 0.15s ease both'
+              }}
+            >
+              <div style={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.1)',
+                color: 'var(--danger-color, #ef4444)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 14px',
+                border: '1px solid rgba(239, 68, 68, 0.2)'
+              }}>
+                <Trash2 size={24} />
+              </div>
+
+              <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                Delete Service?
+              </h4>
+
+              <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0 0 20px' }}>
+                Are you sure you want to delete <strong>{mod.name}</strong>? This will permanently remove this maintenance schedule from your vehicle.
+              </p>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="btn-secondary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={handleDeleteService}
+                  className="btn-danger"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Part Title Card */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>

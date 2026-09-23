@@ -231,6 +231,9 @@ export function GarageProvider({ children }) {
   const deleteMaintenanceModule = async (vehicleId, moduleId) => {
     const data = await StorageService.deleteMaintenanceModule(vehicleId, moduleId);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+    if (data?.vehicles) {
+      notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id, true);
+    }
     return data;
   };
 

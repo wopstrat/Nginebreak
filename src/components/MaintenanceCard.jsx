@@ -4,7 +4,7 @@ import { STATUS, calculatePartLifePercent } from '../services/CalculationEngine'
 import StatusBadge from './StatusBadge';
 import DualPillModal from './DualPillModal';
 import { format } from 'date-fns';
-import { CheckCircle, ChevronRight, Gauge, Clock } from 'lucide-react';
+import { CheckCircle, ChevronRight, Gauge, Clock, Trash2 } from 'lucide-react';
 
 function getPartEmoji(name = '') {
   const lower = name.toLowerCase();
@@ -25,12 +25,14 @@ function getLifeColor(percent, status) {
 }
 
 export default function MaintenanceCard({ mod, vehicleId, currentOdometer, vehicle }) {
-  const { completeService } = useGarage();
+  const { completeService, deleteMaintenanceModule } = useGarage();
   const [showDualModal, setShowDualModal] = useState(false);
   const [showQuickComplete, setShowQuickComplete] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [completedOdo, setCompletedOdo] = useState(currentOdometer || 0);
   const [completedDate, setCompletedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const lifePercent = calculatePartLifePercent(mod, currentOdometer);
   const lifeColor = getLifeColor(lifePercent, mod.status);
@@ -72,6 +74,18 @@ export default function MaintenanceCard({ mod, vehicleId, currentOdometer, vehic
       alert("Error: " + err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (e) => {
+    if (e) e.stopPropagation();
+    setDeleting(true);
+    try {
+      await deleteMaintenanceModule(vehicleId, mod.id);
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      alert("Error deleting service: " + (err.message || err));
+      setDeleting(false);
     }
   };
 
@@ -150,26 +164,134 @@ export default function MaintenanceCard({ mod, vehicleId, currentOdometer, vehic
           <span style={{ color: mod.status === STATUS.OVERDUE ? 'var(--danger-color)' : 'var(--text-secondary)', fontWeight: mod.status === STATUS.OVERDUE ? 600 : 400 }}>
             {subtitle}
           </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowQuickComplete(true);
-            }}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-muted)',
-              fontSize: '0.74rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              padding: '2px 6px',
-              borderRadius: 6
-            }}
-          >
-            ✓ Done
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDeleteConfirm(true);
+              }}
+              title="Delete service"
+              aria-label="Delete service"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '4px 6px',
+                borderRadius: 6,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--danger-color, #ef4444)';
+                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-muted)';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <Trash2 size={13} />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowQuickComplete(true);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                fontSize: '0.74rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: '2px 6px',
+                borderRadius: 6
+              }}
+            >
+              ✓ Done
+            </button>
+          </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div 
+            className="modal-backdrop" 
+            onClick={e => {
+              e.stopPropagation();
+              if (!deleting) setShowDeleteConfirm(false);
+            }} 
+            style={{ zIndex: 1300, background: 'rgba(0, 0, 0, 0.7)' }}
+          >
+            <div 
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: 'var(--bg-card)',
+                borderRadius: 20,
+                width: '100%',
+                maxWidth: 360,
+                padding: '24px 20px',
+                border: '1px solid var(--border-color)',
+                boxShadow: '0 20px 48px rgba(0, 0, 0, 0.3)',
+                textAlign: 'center',
+                animation: 'modalFadeIn 0.15s ease both'
+              }}
+            >
+              <div style={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.1)',
+                color: 'var(--danger-color, #ef4444)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 14px',
+                border: '1px solid rgba(239, 68, 68, 0.2)'
+              }}>
+                <Trash2 size={24} />
+              </div>
+
+              <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                Delete Service?
+              </h4>
+
+              <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0 0 20px' }}>
+                Are you sure you want to delete <strong>{mod.name}</strong>? This will permanently remove this maintenance schedule from your vehicle.
+              </p>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={e => {
+                    e.stopPropagation();
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="btn-secondary"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={handleDelete}
+                  className="btn-danger"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Inline quick completion if triggered */}
         {showQuickComplete && (
