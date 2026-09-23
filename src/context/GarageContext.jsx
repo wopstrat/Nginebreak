@@ -156,7 +156,7 @@ export function GarageProvider({ children }) {
     );
 
     return () => subscription.unsubscribe();
-  }, []););
+  }, []);
 
   async function loadData() {
     dispatch({ type: "SET_LOADING", value: true });
