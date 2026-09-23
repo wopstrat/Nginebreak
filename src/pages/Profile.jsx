@@ -362,9 +362,10 @@ export default function Profile() {
   const nextLevel = LEVELS[Math.min(level.index + 1, LEVELS.length - 1)];
   const progress  = nextLevel.min > 0 ? Math.min((totalRecords / nextLevel.min) * 100, 100) : 100;
 
-  // Derived name and initials
-  const displayName = user?.name || (isRealAdminUser && isAdminView ? 'System Admin' : 'Enthusiast');
-  const initials = isRealAdminUser && isAdminView ? 'A' : (displayName?.[0]?.toUpperCase() || 'G');
+  // Derived name and initials — always prefer the real user name/avatar
+  const displayName = user?.name || currentUser?.user_metadata?.display_name || (isRealAdminUser && isAdminView ? 'System Admin' : 'Enthusiast');
+  const initials = displayName?.[0]?.toUpperCase() || 'G';
+
 
   return (
     <div className="app-container" style={{ paddingTop: 0 }}>

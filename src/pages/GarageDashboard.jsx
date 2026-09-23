@@ -2,14 +2,15 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useGarage } from "../context/GarageContext";
 import VehicleFitnessDial from "../components/VehicleFitnessDial";
+import SwipeableVehicleCard from "../components/SwipeableVehicleCard";
 import {
   isUserAdmin,
   isRealAdmin,
   getAdminViewMode,
   setAdminViewMode,
   getAdminSettings,
-  saveAdminSettings,
 } from "../utils/adminAuth";
+import notificationService from "../services/NotificationService";
 import {
   Plus,
   Shield,
@@ -49,6 +50,34 @@ export default function GarageDashboard() {
   const [adminViewMode, setAdminViewModeState] = useState(() => getAdminViewMode());
   const [adminSettings, setAdminSettings] = useState(() => getAdminSettings());
   const [backupExported, setBackupExported] = useState(false);
+  const [adminTestNotifSent, setAdminTestNotifSent] = useState(false);
+
+  const handleAdminTestNotification = async () => {
+    try {
+      if (notificationService.getPermissionState() !== "granted") {
+        const perm = await notificationService.requestPermission();
+        if (perm !== "granted") {
+          alert("Notification permission was not granted. Please allow notifications in your browser settings to test.");
+          return;
+        }
+      }
+      const sent = await notificationService.sendNotification({
+        title: "🚗 NGINEBREAK Admin Test",
+        body: "Push & garage notifications are active and working globally!",
+        tag: `admin-test-${Date.now()}`,
+        data: { url: "/" },
+      });
+      if (sent) {
+        setAdminTestNotifSent(true);
+        setTimeout(() => setAdminTestNotifSent(false), 3500);
+      } else {
+        alert("Could not deliver test notification. Please verify browser notification settings.");
+      }
+    } catch (err) {
+      console.error("[Admin] Test notification error:", err);
+      alert("Error triggering notification: " + (err.message || err));
+    }
+  };
 
   // First-time Onboarding state
   const userEmail = currentUser?.email || user?.email;
@@ -243,8 +272,8 @@ export default function GarageDashboard() {
           />
         </div>
 
-        {/* Notification Bell & Profile Avatar */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 4 }}>
+        {/* Notification Bell, Admin Toggle (admin only) & Profile Avatar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
           <button
             type="button"
             className="btn-icon"
@@ -278,6 +307,60 @@ export default function GarageDashboard() {
               }}
             />
           </button>
+
+          {/* ── Admin / User View Toggle (only for real admins) ── */}
+          {isRealAdminUser && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = adminViewMode === "admin" ? "user" : "admin";
+                setAdminViewMode(next);
+                setAdminViewModeState(next);
+              }}
+              title={adminViewMode === "admin" ? "Switch to User View" : "Switch to Admin View"}
+              style={{
+                position: "relative",
+                background:
+                  adminViewMode === "admin"
+                    ? "linear-gradient(135deg, rgba(249,115,22,0.18) 0%, rgba(245,158,11,0.12) 100%)"
+                    : "var(--bg-card)",
+                border: `1.5px solid ${
+                  adminViewMode === "admin"
+                    ? "rgba(249,115,22,0.5)"
+                    : "var(--border-color)"
+                }`,
+                borderRadius: "50%",
+                width: 40,
+                height: 40,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                color: adminViewMode === "admin" ? "#f97316" : "var(--text-muted)",
+                flexShrink: 0,
+              }}
+            >
+              {adminViewMode === "admin" ? (
+                <Shield size={17} />
+              ) : (
+                <Eye size={17} />
+              )}
+              {/* Small indicator dot */}
+              <span
+                style={{
+                  position: "absolute",
+                  bottom: 6,
+                  right: 6,
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: adminViewMode === "admin" ? "#f97316" : "#94a3b8",
+                  border: "1.5px solid var(--bg-card)",
+                }}
+              />
+            </button>
+          )}
 
           <Link to="/profile" style={{ textDecoration: "none" }}>
             <div
@@ -464,100 +547,45 @@ export default function GarageDashboard() {
         </div>
       </div>
 
-      {/* ── Admin Switch Banner (when applicable) ── */}
+      {/* ── Admin View Mode Pill (subtle banner only in user-view mode) ── */}
       {isRealAdminUser && adminViewMode === "user" && (
         <div
           style={{
-            background: "rgba(249, 115, 22, 0.08)",
-            border: "1px solid rgba(249, 115, 22, 0.3)",
-            borderRadius: 12,
-            padding: "10px 14px",
-            marginBottom: 16,
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
+            gap: 8,
+            background: "rgba(148, 163, 184, 0.07)",
+            border: "1px solid rgba(148, 163, 184, 0.18)",
+            borderRadius: 10,
+            padding: "7px 12px",
+            marginBottom: 14,
           }}
         >
-          <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)" }}>
-            👁️ Viewing as Standard User
+          <Eye size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 500, flex: 1 }}>
+            Viewing as standard user
           </span>
           <button
-            onClick={() => setAdminViewMode("admin")}
+            type="button"
+            onClick={() => {
+              setAdminViewMode("admin");
+              setAdminViewModeState("admin");
+            }}
             style={{
-              background: "var(--accent-color)",
-              color: "#fff",
+              background: "none",
               border: "none",
-              borderRadius: 8,
-              padding: "6px 12px",
-              fontSize: "0.78rem",
+              color: "var(--accent-color, #f97316)",
+              fontSize: "0.74rem",
               fontWeight: 700,
               cursor: "pointer",
+              padding: 0,
               display: "flex",
               alignItems: "center",
-              gap: 6,
+              gap: 4,
             }}
           >
-            <Shield size={14} /> Switch to Admin View
+            <Shield size={12} /> Back to Admin
           </button>
-        </div>
-      )}
-
-      {/* ── Admin Command Center (if admin) ── */}
-      {isAdmin && (
-        <div
-          style={{
-            background:
-              "linear-gradient(135deg, rgba(249,115,22,0.08) 0%, rgba(245,158,11,0.04) 100%)",
-            border: "1px solid rgba(249,115,22,0.3)",
-            borderRadius: 14,
-            padding: "14px 16px",
-            marginBottom: 18,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 10,
-            }}
-          >
-            <span style={{ fontSize: "0.85rem", fontWeight: 800, color: "var(--text-primary)" }}>
-              Admin Center
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => setAdminViewMode("user")}
-                style={{
-                  background: "#0F172A",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: 6,
-                  padding: "4px 8px",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                <Eye size={12} /> User View
-              </button>
-              <button
-                onClick={handleExportBackup}
-                style={{
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: 6,
-                  padding: "4px 8px",
-                  fontSize: "0.72rem",
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                }}
-              >
-                <Download size={12} /> {backupExported ? "Exported!" : "JSON Backup"}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -627,167 +655,9 @@ export default function GarageDashboard() {
               </Link>
             </div>
           ) : (
-            vehicles.map((v) => {
-              const stats = getVehicleStats(v);
-              const membersCount = (v.members?.length || 0) + 1;
-
-              return (
-                <div
-                  key={v.id}
-                  onClick={() => navigate(`/vehicle/${v.id}`)}
-                  style={{
-                    background: "var(--bg-card)",
-                    borderRadius: 18,
-                    padding: "12px 14px",
-                    border: "1px solid var(--border-color)",
-                    boxShadow: "var(--card-shadow, 0 2px 10px rgba(0,0,0,0.03))",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    marginBottom: 12,
-                    cursor: "pointer",
-                    transition: "transform 0.15s ease, box-shadow 0.15s ease",
-                  }}
-                  className="vehicle-dashboard-card"
-                >
-                  {/* Left: Vehicle Image Thumbnail */}
-                  <div
-                    style={{
-                      width: 76,
-                      height: 50,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <img
-                      src={
-                        v.photo_url ||
-                        (v.media && v.media[0]?.url) ||
-                        "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&w=300&q=80"
-                      }
-                      alt={v.model}
-                      style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                        if (e.target.nextSibling) e.target.nextSibling.style.display = "flex";
-                      }}
-                    />
-                    <div
-                      style={{
-                        display: "none",
-                        width: 44,
-                        height: 44,
-                        borderRadius: 12,
-                        background: "rgba(249,115,22,0.1)",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "1.4rem",
-                      }}
-                    >
-                      🚗
-                    </div>
-                  </div>
-
-                  {/* Middle: Name, Year • Type, Shared badge */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <h3
-                      style={{
-                        fontSize: "0.98rem",
-                        fontWeight: 800,
-                        color: "var(--text-primary)",
-                        margin: "0 0 2px",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {v.nickname || `${v.make} ${v.model}`}
-                    </h3>
-                    <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginBottom: 4 }}>
-                      {v.year} &bull; {v.type || v.fuel_type || "Car"}
-                    </div>
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        background: "rgba(16, 185, 129, 0.12)",
-                        color: "#059669",
-                        borderRadius: 12,
-                        padding: "2px 8px",
-                        fontSize: "0.68rem",
-                        fontWeight: 700,
-                      }}
-                    >
-                      <Users size={11} />
-                      <span>
-                        Shared &bull; {membersCount} Member{membersCount !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Right: Status Pill + Chevron */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                    {stats.overdue > 0 ? (
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
-                          background: "rgba(239, 68, 68, 0.1)",
-                          color: "#ef4444",
-                          borderRadius: 10,
-                          padding: "6px 10px",
-                          fontSize: "0.78rem",
-                          fontWeight: 700,
-                        }}
-                      >
-                        <AlertTriangle size={14} />
-                        <span>{stats.overdue} Overdue</span>
-                      </div>
-                    ) : stats.dueSoon > 0 ? (
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
-                          background: "rgba(245, 158, 11, 0.1)",
-                          color: "#f59e0b",
-                          borderRadius: 10,
-                          padding: "6px 10px",
-                          fontSize: "0.78rem",
-                          fontWeight: 700,
-                        }}
-                      >
-                        <AlertCircle size={14} />
-                        <span>{stats.dueSoon} Due Soon</span>
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 5,
-                          background: "rgba(16, 185, 129, 0.1)",
-                          color: "#10b981",
-                          borderRadius: 10,
-                          padding: "6px 10px",
-                          fontSize: "0.78rem",
-                          fontWeight: 700,
-                        }}
-                      >
-                        <CheckCircle2 size={14} />
-                        <span>All Good</span>
-                      </div>
-                    )}
-                    <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
-                  </div>
-                </div>
-              );
-            })
+            vehicles.map((v) => (
+              <SwipeableVehicleCard key={v.id} vehicle={v} />
+            ))
           )}
 
           {/* ── 2. NEXT MAINTENANCE Section ── */}

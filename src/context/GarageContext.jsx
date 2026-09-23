@@ -214,6 +214,30 @@ export function GarageProvider({ children }) {
   const addMaintenanceModule = async (vehicleId, params) => {
     const data = await StorageService.addMaintenanceModule(vehicleId, params);
     dispatch({ type: "SET_VEHICLES", vehicles: data.vehicles });
+
+    const updatedVehicle = data.vehicles?.find((v) => v.id === vehicleId);
+    if (updatedVehicle) {
+      // Notify ONLY when adding a new service to a SHARED vehicle
+      const isShared =
+        (Array.isArray(updatedVehicle.members) && updatedVehicle.members.length > 0) ||
+        (updatedVehicle.user_id && state.currentUser?.id && updatedVehicle.user_id !== state.currentUser.id);
+
+      if (isShared) {
+        const updaterName =
+          state.currentUser?.user_metadata?.display_name ||
+          state.currentUser?.email?.split("@")[0] ||
+          state.user?.name ||
+          "Vehicle Partner";
+
+        notificationService.notifyServiceAdded(
+          updatedVehicle,
+          params?.name || "Maintenance",
+          updaterName,
+          state.currentUser?.id
+        );
+      }
+    }
+
     if (data?.vehicles) {
       notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id, true);
     }

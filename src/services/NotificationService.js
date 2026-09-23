@@ -224,7 +224,10 @@ class NotificationService {
     // Try service worker showNotification first (best for PWA & mobile)
     try {
       if ("serviceWorker" in navigator) {
-        const registration = await navigator.serviceWorker.ready;
+        let registration = await navigator.serviceWorker.getRegistration();
+        if (!registration) {
+          registration = await navigator.serviceWorker.register("/push-sw.js").catch(() => null);
+        }
         if (registration && registration.showNotification) {
           await registration.showNotification(title || "NGINEBREAK", notifOptions);
           return true;
@@ -362,6 +365,30 @@ class NotificationService {
       title: "🔧 NGINEBREAK",
       body: `${userLabel} completed ${moduleName || "service"}.\n${vehicleName}.`,
       tag: `service-${vehicle.id}-${Date.now()}`,
+      data: { url: `/vehicle/${vehicle.id}` },
+    });
+  }
+
+  /**
+   * Dispatch shared maintenance service added notification (ONLY for shared vehicles)
+   */
+  async notifyServiceAdded(vehicle, moduleName, addedByName, userId) {
+    if (!vehicle) return;
+    if (this.getPermissionState() !== "granted") return;
+
+    const prefs = this.getPreferences(userId);
+    if (!prefs.sharedGarageUpdates) return;
+
+    const vehicleName =
+      vehicle.name ||
+      [vehicle.make, vehicle.model].filter(Boolean).join(" ") ||
+      "Vehicle";
+    const userLabel = addedByName || "Vehicle partner";
+
+    await this.sendNotification({
+      title: "🔧 NGINEBREAK",
+      body: `${userLabel} added a new service: ${moduleName || "Maintenance"}.\n${vehicleName}.`,
+      tag: `service-add-${vehicle.id}-${Date.now()}`,
       data: { url: `/vehicle/${vehicle.id}` },
     });
   }

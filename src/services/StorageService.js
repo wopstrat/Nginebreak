@@ -125,6 +125,46 @@ function addDeletedVehicleId(id) {
   } catch (_) {}
 }
 
+// Tombstone helpers for maintenance modules
+function getDeletedModuleIds() {
+  try {
+    const raw = localStorage.getItem("nginebreak_deleted_module_ids");
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function addDeletedModuleId(id) {
+  try {
+    const list = getDeletedModuleIds();
+    if (!list.includes(id)) {
+      list.push(id);
+      localStorage.setItem("nginebreak_deleted_module_ids", JSON.stringify(list));
+    }
+  } catch (_) {}
+}
+
+// Tombstone helpers for service history records
+function getDeletedHistoryIds() {
+  try {
+    const raw = localStorage.getItem("nginebreak_deleted_history_ids");
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function addDeletedHistoryId(id) {
+  try {
+    const list = getDeletedHistoryIds();
+    if (!list.includes(id)) {
+      list.push(id);
+      localStorage.setItem("nginebreak_deleted_history_ids", JSON.stringify(list));
+    }
+  } catch (_) {}
+}
+
 class StorageService {
   async init(storageKey = "garage_data_guest") {
     const data = await localforage.getItem(storageKey);
@@ -141,6 +181,8 @@ class StorageService {
     const storageKey = getStorageKey(authUser?.id);
     await this.init(storageKey);
     const deletedIds = getDeletedVehicleIds();
+    const deletedModuleIds = getDeletedModuleIds();
+    const deletedHistoryIds = getDeletedHistoryIds();
 
     let localData = await localforage.getItem(storageKey);
     if (!localData) {
@@ -157,7 +199,17 @@ class StorageService {
     // Guest / unauthenticated mode — use local guest storage directly
     if (!isSupabaseConfigured() || !supabase || !authUser) {
       if (localData?.vehicles) {
-        localData.vehicles = localData.vehicles.filter((v) => !deletedIds.includes(v.id));
+        localData.vehicles = localData.vehicles
+          .filter((v) => !deletedIds.includes(v.id))
+          .map((v) => ({
+            ...v,
+            maintenance_modules: (v.maintenance_modules || []).filter(
+              (m) => !deletedModuleIds.includes(m.id)
+            ),
+            service_history: (v.service_history || []).filter(
+              (h) => !deletedHistoryIds.includes(h.id)
+            ),
+          }));
       }
       return localData || DEFAULT_DATA;
     }
@@ -258,8 +310,10 @@ class StorageService {
 
       // 6. Assemble vehicles
       const assembledVehicles = validDbVehicles.map((veh) => {
-        const rawModules = dbModules.filter((m) => m.vehicle_id === veh.id);
-        const rawHistory = dbHistory.filter((h) => h.vehicle_id === veh.id);
+        const rawModules = dbModules
+          .filter((m) => m.vehicle_id === veh.id && !deletedModuleIds.includes(m.id));
+        const rawHistory = dbHistory
+          .filter((h) => h.vehicle_id === veh.id && !deletedHistoryIds.includes(h.id));
 
         const modules = rawModules.map((mod) => {
           const calc = calculateMaintenanceStatus(
@@ -314,7 +368,17 @@ class StorageService {
           if (deletedIds.includes(locVeh.id)) continue;
           const existsInCloud = assembledVehicles.some((v) => v.id === locVeh.id);
           if (!existsInCloud && (locVeh.user_id === authUser.id || !locVeh.user_id)) {
-            assembledVehicles.push(locVeh);
+            // Strip tombstoned modules & history before inserting local vehicle
+            const safeVeh = {
+              ...locVeh,
+              maintenance_modules: (locVeh.maintenance_modules || []).filter(
+                (m) => !deletedModuleIds.includes(m.id)
+              ),
+              service_history: (locVeh.service_history || []).filter(
+                (h) => !deletedHistoryIds.includes(h.id)
+              ),
+            };
+            assembledVehicles.push(safeVeh);
             // Sync to Supabase in background
             supabase
               .from("vehicles")
@@ -346,10 +410,23 @@ class StorageService {
         }
       }
 
+      // Restore profile data (avatar, bio) from dedicated localStorage backup
+      // This ensures avatar_url and bio fields survive getData() re-fetches from Supabase
+      let profileBackup = {};
+      try {
+        const rawProfile = localStorage.getItem(`nginebreak_profile_${authUser.id}`);
+        if (rawProfile) profileBackup = JSON.parse(rawProfile);
+      } catch (_) {}
+
       const cloudData = {
         user: {
           ...(localData?.user || {}),
-          name: localData?.user?.name || authUser.display_name || "Enthusiast",
+          ...profileBackup,                               // avatar_url, bio fields etc.
+          name:
+            profileBackup.name ||
+            localData?.user?.name ||
+            authUser.display_name ||
+            "Enthusiast",
           id: authUser.id,
         },
         vehicles: assembledVehicles,
@@ -387,6 +464,9 @@ class StorageService {
       localStorage.removeItem("nginebreak_profile_guest");
       localStorage.removeItem("nginebreak_admin_mode");
       localStorage.removeItem("nginebreak_admin_view_mode");
+      // NOTE: Deletion tombstones (nginebreak_deleted_*) are intentionally NOT cleared here.
+      // They must persist permanently as safety guards. If the Supabase delete failed silently
+      // (network error, RLS policy), the tombstone is the only barrier preventing ghost reappearance.
       sessionStorage.clear();
     } catch (err) {
       console.warn("[StorageService] Clear session warning:", err);
@@ -723,28 +803,40 @@ class StorageService {
   // Delete Maintenance Module
   // ==========================================
   async deleteMaintenanceModule(vehicleId, moduleId) {
+    // 1. Register tombstone FIRST — prevents getData() from ever resurecting this module
+    addDeletedModuleId(moduleId);
+
+    // 2. Remove from Supabase in background (fire-and-forget, tombstone is the guard)
     if (isSupabaseConfigured() && supabase) {
-      try {
-        await supabase.from("maintenance_modules").delete().eq("id", moduleId);
-      } catch (err) {
-        console.error("[StorageService] deleteMaintenanceModule error:", err.message);
-      }
+      supabase
+        .from("maintenance_modules")
+        .delete()
+        .eq("id", moduleId)
+        .catch((err) =>
+          console.error("[StorageService] deleteMaintenanceModule error:", err.message)
+        );
     }
 
-    let data = await this.getData();
-    const vehicle = data.vehicles.find((v) => v.id === vehicleId);
+    // 3. Remove from local cache directly (no re-fetch — avoids ghost reappearance)
+    const authUser = await getCurrentAuthUser();
+    const storageKey = getStorageKey(authUser?.id);
+    let localData = await localforage.getItem(storageKey);
+    if (!localData) localData = { user: { name: "Enthusiast" }, vehicles: [] };
+
+    const vehicle = (localData.vehicles || []).find((v) => v.id === vehicleId);
     if (vehicle) {
       vehicle.maintenance_modules = (vehicle.maintenance_modules || []).filter(
         (m) => m.id !== moduleId
       );
-      data.vehicles = recalculateVehicleMaintenance(
-        data.vehicles,
+      localData.vehicles = recalculateVehicleMaintenance(
+        localData.vehicles,
         vehicleId,
         vehicle.current_odometer
       );
-      await this.saveData(data);
+      await localforage.setItem(storageKey, localData);
     }
-    return data;
+
+    return localData;
   }
 
   // ==========================================
@@ -785,23 +877,35 @@ class StorageService {
   // Delete Service History Record
   // ==========================================
   async deleteServiceHistory(vehicleId, historyId) {
+    // 1. Register tombstone FIRST — prevents getData() from ever resurrecting this record
+    addDeletedHistoryId(historyId);
+
+    // 2. Remove from Supabase in background (fire-and-forget, tombstone is the guard)
     if (isSupabaseConfigured() && supabase) {
-      try {
-        await supabase.from("service_history").delete().eq("id", historyId);
-      } catch (err) {
-        console.error("[StorageService] deleteServiceHistory error:", err.message);
-      }
+      supabase
+        .from("service_history")
+        .delete()
+        .eq("id", historyId)
+        .catch((err) =>
+          console.error("[StorageService] deleteServiceHistory error:", err.message)
+        );
     }
 
-    let data = await this.getData();
-    const vehicle = data.vehicles.find((v) => v.id === vehicleId);
+    // 3. Remove from local cache directly (no re-fetch — avoids ghost reappearance)
+    const authUser = await getCurrentAuthUser();
+    const storageKey = getStorageKey(authUser?.id);
+    let localData = await localforage.getItem(storageKey);
+    if (!localData) localData = { user: { name: "Enthusiast" }, vehicles: [] };
+
+    const vehicle = (localData.vehicles || []).find((v) => v.id === vehicleId);
     if (vehicle) {
       vehicle.service_history = (vehicle.service_history || []).filter(
         (h) => h.id !== historyId
       );
-      await this.saveData(data);
+      await localforage.setItem(storageKey, localData);
     }
-    return data;
+
+    return localData;
   }
 
   // ==========================================
