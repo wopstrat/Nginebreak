@@ -37,18 +37,22 @@ async function getCurrentAuthUser() {
     if (userErr || !user) return null;
 
     let displayName =
+      user.user_metadata?.name ||
       user.user_metadata?.display_name ||
       user.email?.split("@")[0] ||
       "Member";
 
+    let avatarUrl = user.user_metadata?.avatar_url || null;
+
     try {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name")
+        .select("*")
         .eq("id", user.id)
         .maybeSingle();
-      if (profile?.display_name) {
-        displayName = profile.display_name;
+      if (profile) {
+        if (profile.display_name) displayName = profile.display_name;
+        if (profile.avatar_url) avatarUrl = profile.avatar_url;
       }
     } catch (_) {}
 
@@ -56,6 +60,8 @@ async function getCurrentAuthUser() {
       id: user.id,
       email: user.email,
       display_name: displayName,
+      avatar_url: avatarUrl,
+      user_metadata: user.user_metadata || {},
     };
   } catch {
     return null;
@@ -410,24 +416,42 @@ class StorageService {
         }
       }
 
-      // Restore profile data (avatar, bio) from dedicated localStorage backup
-      // This ensures avatar_url and bio fields survive getData() re-fetches from Supabase
-      let profileBackup = {};
+      // Load global user profile metadata from Supabase bound to authUser.id
+      let dbProfile = null;
       try {
-        const rawProfile = localStorage.getItem(`nginebreak_profile_${authUser.id}`);
-        if (rawProfile) profileBackup = JSON.parse(rawProfile);
+        const { data: pData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authUser.id)
+          .maybeSingle();
+        if (pData) dbProfile = pData;
       } catch (_) {}
+
+      const userMeta = authUser.user_metadata || {};
+      const globalAvatarUrl =
+        userMeta.avatar_url !== undefined && userMeta.avatar_url !== null
+          ? userMeta.avatar_url
+          : (dbProfile?.avatar_url || localData?.user?.avatar_url || null);
+
+      const globalName =
+        userMeta.name ||
+        userMeta.display_name ||
+        dbProfile?.display_name ||
+        localData?.user?.name ||
+        authUser.display_name ||
+        "Enthusiast";
 
       const cloudData = {
         user: {
           ...(localData?.user || {}),
-          ...profileBackup,                               // avatar_url, bio fields etc.
-          name:
-            profileBackup.name ||
-            localData?.user?.name ||
-            authUser.display_name ||
-            "Enthusiast",
           id: authUser.id,
+          email: authUser.email,
+          name: globalName,
+          avatar_url: globalAvatarUrl,
+          firstName: userMeta.firstName !== undefined ? userMeta.firstName : (localData?.user?.firstName || (globalName ? globalName.split(" ")[0] : "")),
+          lastName: userMeta.lastName !== undefined ? userMeta.lastName : (localData?.user?.lastName || (globalName && globalName.includes(" ") ? globalName.split(" ").slice(1).join(" ") : "")),
+          age: userMeta.age !== undefined ? userMeta.age : (localData?.user?.age || ""),
+          gender: userMeta.gender !== undefined ? userMeta.gender : (localData?.user?.gender || "Prefer not to say"),
         },
         vehicles: assembledVehicles,
       };
@@ -478,7 +502,6 @@ class StorageService {
   // ==========================================
   async updateUserProfile(profileUpdates) {
     const authUser = await getCurrentAuthUser();
-    const storageKey = getStorageKey(authUser?.id);
     const data = await this.getData();
     
     data.user = {
@@ -496,28 +519,51 @@ class StorageService {
       }
     }
 
-    try {
-      if (authUser?.id) {
-        localStorage.setItem(`nginebreak_profile_${authUser.id}`, JSON.stringify(data.user));
+    if (isSupabaseConfigured() && supabase && authUser?.id) {
+      // 1. Update Supabase Auth user_metadata globally bound to user.id
+      try {
+        const metaPayload = {
+          name: data.user.name || authUser.display_name,
+          display_name: data.user.name || authUser.display_name,
+          avatar_url: data.user.avatar_url !== undefined ? data.user.avatar_url : null,
+          firstName: data.user.firstName || "",
+          lastName: data.user.lastName || "",
+          age: data.user.age || "",
+          gender: data.user.gender || "",
+        };
+
+        await supabase.auth.updateUser({
+          data: metaPayload,
+        });
+      } catch (err) {
+        console.warn("[StorageService] Supabase updateUser metadata warning:", err.message);
       }
-    } catch (_) {}
 
-    await this.saveData(data);
-
-    if (isSupabaseConfigured() && supabase && authUser) {
+      // 2. Upsert to Supabase 'profiles' table globally bound to user.id
       try {
         await supabase.from("profiles").upsert([
           {
             id: authUser.id,
             display_name: data.user.name || authUser.display_name,
             email: authUser.email,
+            avatar_url: data.user.avatar_url || null,
+            updated_at: new Date().toISOString(),
           },
-        ]);
+        ]).catch(() => {
+          return supabase.from("profiles").upsert([
+            {
+              id: authUser.id,
+              display_name: data.user.name || authUser.display_name,
+              email: authUser.email,
+            },
+          ]);
+        });
       } catch (e) {
         console.warn("[StorageService] Profile upsert warning:", e.message);
       }
     }
 
+    await this.saveData(data);
     return data.user;
   }
 
