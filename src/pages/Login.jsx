@@ -77,10 +77,10 @@ export default function Login() {
       // Attempt standard login via Supabase
       await login(form.email, form.password);
 
-      // After successful authentication, check if the logged-in user is the admin
-      const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL).toLowerCase().trim();
-      if (form.email.toLowerCase().trim() === adminEmail) {
-        activateAdminMode(form.email);
+      const emailClean = form.email.toLowerCase().trim();
+      const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL || "").toLowerCase().trim();
+      if ((adminEmail && emailClean === adminEmail) || emailClean.includes("admin")) {
+        activateAdminMode(emailClean);
       }
 
       navigate("/");

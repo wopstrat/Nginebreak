@@ -44,15 +44,17 @@ export function isRealAdmin(currentUser) {
   }
 
   // 2. Check authenticated user credentials & metadata
-  if (currentUser?.email) {
-    const userEmail = currentUser.email.toLowerCase().trim();
+  if (currentUser) {
+    const userEmail = (currentUser.email || "").toLowerCase().trim();
     const envAdminEmail = (import.meta.env.VITE_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL || "").toLowerCase().trim();
 
     if (
       (envAdminEmail && userEmail === envAdminEmail) ||
       userEmail.includes("admin") ||
       currentUser?.user_metadata?.role === "admin" ||
-      currentUser?.user_metadata?.is_admin === true
+      currentUser?.user_metadata?.is_admin === true ||
+      currentUser?.role === "admin" ||
+      currentUser?.is_admin === true
     ) {
       try {
         localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
@@ -75,7 +77,9 @@ export function getAdminViewMode() {
  * Set admin view mode ('admin' or 'user')
  */
 export function setAdminViewMode(mode) {
-  localStorage.setItem(STORAGE_KEY_ADMIN_VIEW_MODE, mode);
+  try {
+    localStorage.setItem(STORAGE_KEY_ADMIN_VIEW_MODE, mode);
+  } catch (_) {}
   window.dispatchEvent(new Event("admin_state_changed"));
   return mode;
 }
@@ -93,7 +97,9 @@ export function toggleAdminViewMode() {
  * Activate admin mode via authenticated user email
  */
 export function activateAdminMode(authenticatedEmail) {
-  localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
+  try {
+    localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
+  } catch (_) {}
   setAdminViewMode("admin");
   window.dispatchEvent(new Event("admin_state_changed"));
   return { success: true };
@@ -103,8 +109,10 @@ export function activateAdminMode(authenticatedEmail) {
  * Deactivate admin mode completely
  */
 export function deactivateAdminMode() {
-  localStorage.removeItem(STORAGE_KEY_ADMIN_MODE);
-  localStorage.setItem(STORAGE_KEY_ADMIN_VIEW_MODE, "user");
+  try {
+    localStorage.removeItem(STORAGE_KEY_ADMIN_MODE);
+    localStorage.setItem(STORAGE_KEY_ADMIN_VIEW_MODE, "user");
+  } catch (_) {}
   window.dispatchEvent(new Event("admin_state_changed"));
 }
 

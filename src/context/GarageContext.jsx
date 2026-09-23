@@ -2,6 +2,17 @@ import React, { createContext, useContext, useReducer, useEffect } from "react";
 import StorageService from "../services/StorageService";
 import { supabase, isSupabaseConfigured } from "../services/supabaseClient";
 import notificationService from "../services/NotificationService";
+import {
+  isRealAdmin,
+  isUserAdmin,
+  getAdminViewMode,
+  setAdminViewMode as setAdminViewModeUtil,
+  toggleAdminViewMode as toggleAdminViewModeUtil,
+  activateAdminMode as activateAdminModeUtil,
+  deactivateAdminMode as deactivateAdminModeUtil,
+  getAdminSettings,
+  saveAdminSettings as saveAdminSettingsUtil,
+} from "../utils/adminAuth";
 
 const GarageContext = createContext();
 
@@ -12,6 +23,10 @@ const initialState = {
   authLoading: true,       // true until auth session resolved
   loading: true,
   activeVehicleId: null,
+  isRealAdminUser: false,
+  isAdmin: false,
+  adminViewMode: "admin",
+  adminSettings: getAdminSettings(),
 };
 
 function garageReducer(state, action) {
@@ -33,6 +48,14 @@ function garageReducer(state, action) {
       return { ...state, activeVehicleId: action.id };
     case "SET_LOADING":
       return { ...state, loading: action.value };
+    case "SET_ADMIN_STATE":
+      return {
+        ...state,
+        isRealAdminUser: action.isRealAdminUser,
+        isAdmin: action.isAdmin,
+        adminViewMode: action.adminViewMode,
+        adminSettings: action.adminSettings || state.adminSettings,
+      };
     default:
       return state;
   }
@@ -41,10 +64,36 @@ function garageReducer(state, action) {
 export function GarageProvider({ children }) {
   const [state, dispatch] = useReducer(garageReducer, initialState);
 
+  // Sync admin state whenever currentUser or admin events change
+  useEffect(() => {
+    const syncAdmin = () => {
+      const real = isRealAdmin(state.currentUser);
+      const view = getAdminViewMode();
+      const userAdmin = isUserAdmin(state.currentUser);
+      const settings = getAdminSettings();
+      dispatch({
+        type: "SET_ADMIN_STATE",
+        isRealAdminUser: real,
+        isAdmin: userAdmin,
+        adminViewMode: view,
+        adminSettings: settings,
+      });
+    };
+
+    syncAdmin();
+
+    window.addEventListener("admin_state_changed", syncAdmin);
+    window.addEventListener("admin_settings_changed", syncAdmin);
+    return () => {
+      window.removeEventListener("admin_state_changed", syncAdmin);
+      window.removeEventListener("admin_settings_changed", syncAdmin);
+    };
+  }, [state.currentUser]);
+
   // -- Auth session listener ----------------------------------
   useEffect(() => {
     if (!isSupabaseConfigured() || !supabase) {
-      // No Supabase � run in guest mode
+      // No Supabase - run in guest mode
       dispatch({ type: "SET_AUTH", user: null });
       loadData();
       return;
@@ -71,6 +120,9 @@ export function GarageProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       dispatch({ type: "SET_AUTH", user: session?.user ?? null });
       if (session?.user) {
+        if (isRealAdmin(session.user)) {
+          activateAdminModeUtil(session.user.email);
+        }
         ensureProfile(session.user);
         loadData();
       } else {
@@ -86,6 +138,9 @@ export function GarageProvider({ children }) {
       async (event, session) => {
         dispatch({ type: "SET_AUTH", user: session?.user ?? null });
         if (session?.user) {
+          if (isRealAdmin(session.user)) {
+            activateAdminModeUtil(session.user.email);
+          }
           ensureProfile(session.user);
           loadData();
         } else {
@@ -101,7 +156,7 @@ export function GarageProvider({ children }) {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []););
 
   async function loadData() {
     dispatch({ type: "SET_LOADING", value: true });
@@ -362,6 +417,12 @@ export function GarageProvider({ children }) {
   const isOnboardingCompleted = (email) => StorageService.isOnboardingCompleted(email);
   const setOnboardingCompleted = (email, completed) => StorageService.setOnboardingCompleted(email, completed);
 
+  const setAdminViewMode = (mode) => setAdminViewModeUtil(mode);
+  const toggleAdminViewMode = () => toggleAdminViewModeUtil();
+  const activateAdminMode = (email) => activateAdminModeUtil(email);
+  const deactivateAdminMode = () => deactivateAdminModeUtil();
+  const saveAdminSettings = (settings) => saveAdminSettingsUtil(settings);
+
   return (
     <GarageContext.Provider
       value={{
@@ -370,6 +431,12 @@ export function GarageProvider({ children }) {
         login,
         register,
         logout,
+        // Admin controls
+        setAdminViewMode,
+        toggleAdminViewMode,
+        activateAdminMode,
+        deactivateAdminMode,
+        saveAdminSettings,
         // Onboarding
         isOnboardingCompleted,
         setOnboardingCompleted,
