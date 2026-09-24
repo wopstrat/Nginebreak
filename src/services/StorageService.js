@@ -448,6 +448,8 @@ class StorageService {
           email: authUser.email,
           name: globalName,
           avatar_url: globalAvatarUrl,
+          role: dbProfile?.role || authUser.app_metadata?.role || (dbProfile?.is_admin ? "admin" : "member"),
+          is_admin: !!(dbProfile?.is_admin || dbProfile?.role === "admin" || authUser.app_metadata?.role === "admin" || authUser.app_metadata?.is_admin),
           firstName: userMeta.firstName !== undefined ? userMeta.firstName : (localData?.user?.firstName || (globalName ? globalName.split(" ")[0] : "")),
           lastName: userMeta.lastName !== undefined ? userMeta.lastName : (localData?.user?.lastName || (globalName && globalName.includes(" ") ? globalName.split(" ").slice(1).join(" ") : "")),
           age: userMeta.age !== undefined ? userMeta.age : (localData?.user?.age || ""),
@@ -1652,13 +1654,21 @@ class StorageService {
   async updateUserProfileAdmin(userId, updates) {
     if (isSupabaseConfigured() && supabase) {
       try {
-        await supabase.from("profiles").upsert({
-          id: userId,
-          ...updates,
-          updated_at: new Date().toISOString(),
-        });
+        const { error } = await supabase.from("profiles").upsert(
+          {
+            id: userId,
+            ...updates,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+        if (error) {
+          console.error("[StorageService] updateUserProfileAdmin Supabase error:", error.message || error);
+          throw error;
+        }
       } catch (err) {
         console.error("[StorageService] updateUserProfileAdmin error:", err.message);
+        throw err;
       }
     }
     return updates;
@@ -1701,9 +1711,14 @@ class StorageService {
 
   async adminAddVehicle(targetUserId, vehiclePayload) {
     const vehId = vehiclePayload.id || uuidv4();
+    const authUser = await getCurrentAuthUser();
+    // Validate UUID to prevent Postgres syntax error when targetUserId is non-UUID
+    const isUuid = (str) => typeof str === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    const validUserId = isUuid(targetUserId) ? targetUserId : (isUuid(authUser?.id) ? authUser.id : null);
+
     const newVeh = {
       id: vehId,
-      user_id: targetUserId,
+      user_id: validUserId,
       type: vehiclePayload.type || "Car",
       make: vehiclePayload.make || "Custom",
       model: vehiclePayload.model || "Vehicle",
@@ -1718,10 +1733,10 @@ class StorageService {
 
     if (isSupabaseConfigured() && supabase) {
       try {
-        await supabase.from("vehicles").insert([
+        const { error } = await supabase.from("vehicles").insert([
           {
             id: vehId,
-            user_id: targetUserId,
+            user_id: validUserId,
             type: newVeh.type,
             make: newVeh.make,
             model: newVeh.model,
@@ -1730,6 +1745,9 @@ class StorageService {
             notes: newVeh.notes,
           },
         ]);
+        if (error) {
+          console.error("[StorageService] adminAddVehicle Supabase error:", error.message || error);
+        }
       } catch (err) {
         console.error("[StorageService] adminAddVehicle Supabase error:", err.message);
       }
@@ -1744,7 +1762,7 @@ class StorageService {
   async adminUpdateVehicle(vehicleId, updates) {
     if (isSupabaseConfigured() && supabase) {
       try {
-        await supabase
+        const { error } = await supabase
           .from("vehicles")
           .update({
             make: updates.make,
@@ -1755,6 +1773,9 @@ class StorageService {
             updated_at: new Date().toISOString(),
           })
           .eq("id", vehicleId);
+        if (error) {
+          console.error("[StorageService] adminUpdateVehicle Supabase error:", error.message || error);
+        }
       } catch (err) {
         console.error("[StorageService] adminUpdateVehicle Supabase error:", err.message);
       }
@@ -1772,7 +1793,10 @@ class StorageService {
   async adminDeleteVehicle(vehicleId) {
     if (isSupabaseConfigured() && supabase) {
       try {
-        await supabase.from("vehicles").delete().eq("id", vehicleId);
+        const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId);
+        if (error) {
+          console.error("[StorageService] adminDeleteVehicle Supabase error:", error.message || error);
+        }
         await supabase.from("odometer_history").delete().eq("vehicle_id", vehicleId);
         await supabase.from("maintenance_modules").delete().eq("vehicle_id", vehicleId);
         await supabase.from("service_history").delete().eq("vehicle_id", vehicleId);
@@ -1812,7 +1836,7 @@ class StorageService {
 
     if (isSupabaseConfigured() && supabase) {
       try {
-        await supabase.from("maintenance_modules").insert([
+        const { error } = await supabase.from("maintenance_modules").insert([
           {
             id: modId,
             vehicle_id: vehicleId,
@@ -1824,6 +1848,9 @@ class StorageService {
             last_service_date: newMod.last_service_date,
           },
         ]);
+        if (error) {
+          console.error("[StorageService] adminAddMaintenanceModule Supabase error:", error.message || error);
+        }
       } catch (err) {
         console.error("[StorageService] adminAddMaintenanceModule Supabase error:", err.message);
       }
@@ -1843,7 +1870,10 @@ class StorageService {
   async adminDeleteMaintenanceModule(moduleId, vehicleId) {
     if (isSupabaseConfigured() && supabase) {
       try {
-        await supabase.from("maintenance_modules").delete().eq("id", moduleId);
+        const { error } = await supabase.from("maintenance_modules").delete().eq("id", moduleId);
+        if (error) {
+          console.error("[StorageService] adminDeleteMaintenanceModule Supabase error:", error.message || error);
+        }
       } catch (err) {
         console.error("[StorageService] adminDeleteMaintenanceModule Supabase error:", err.message);
       }

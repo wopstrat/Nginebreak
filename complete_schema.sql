@@ -15,9 +15,11 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Ensure email column exists on profiles if table was created previously
+-- Ensure email, is_admin, and role columns exist on profiles if table was created previously
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT 'Member';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'member';
 
 -- 3. Automatic Profile Sync Trigger from auth.users
 -- Whenever any user signs up or updates in Supabase Auth, they are automatically in public.profiles

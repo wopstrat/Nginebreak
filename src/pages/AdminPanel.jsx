@@ -5,7 +5,6 @@ import StorageService from "../services/StorageService";
 import notificationService from "../services/NotificationService";
 import {
   setAdminViewMode,
-  saveAdminSettings,
 } from "../utils/adminAuth";
 import "./AdminPanel.css";
 import {
@@ -35,7 +34,7 @@ import {
 } from "lucide-react";
 
 export default function AdminPanel() {
-  const { isRealAdminUser, adminViewMode, refreshData, adminSettings, currentUser } = useGarage();
+  const { isRealAdminUser, adminViewMode, refreshData, adminSettings, currentUser, saveAdminSettings } = useGarage();
   const navigate = useNavigate();
 
   // Active top tab: 'overview' | 'users' | 'garages' | 'maintenance' | 'notifications' | 'system'
@@ -305,10 +304,33 @@ export default function AdminPanel() {
   };
 
   // Settings Toggle Handler
-  const handleToggleSetting = (key) => {
+  const handleToggleSetting = async (key) => {
     const updated = { ...localSettings, [key]: !localSettings[key] };
     setLocalSettings(updated);
-    saveAdminSettings(updated);
+    if (saveAdminSettings) {
+      await saveAdminSettings(updated);
+    }
+  };
+
+  // User Role Management Handler
+  const handleToggleUserAdminRole = async (targetUser) => {
+    if (!targetUser) return;
+    const newStatus = !targetUser.is_admin;
+    const confirmMsg = newStatus
+      ? `Promote "${targetUser.display_name}" to Administrator? They will have full access to the Admin Console.`
+      : `Revoke Administrator privileges from "${targetUser.display_name}"?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await StorageService.updateUserProfileAdmin(targetUser.id, {
+        is_admin: newStatus,
+        role: newStatus ? "admin" : "member",
+      });
+      await loadAdminData();
+      if (refreshData) await refreshData();
+    } catch (err) {
+      alert("Failed to update user role: " + err.message);
+    }
   };
 
   const currentAdminInitial = (currentUser?.email?.[0] || "A").toUpperCase();
@@ -631,13 +653,15 @@ export default function AdminPanel() {
                 <input
                   type="checkbox"
                   checked={localSettings.imageOptimizationMode === "saver"}
-                  onChange={() => {
+                  onChange={async () => {
                     const updated = {
                       ...localSettings,
                       imageOptimizationMode: localSettings.imageOptimizationMode === "saver" ? "standard" : "saver",
                     };
                     setLocalSettings(updated);
-                    saveAdminSettings(updated);
+                    if (saveAdminSettings) {
+                      await saveAdminSettings(updated);
+                    }
                   }}
                 />
                 <span className="ios-slider"></span>
@@ -799,12 +823,35 @@ export default function AdminPanel() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => handleOpenAddVehicle(selectedUser.id)}
-                  style={{ background: "#FF4D00", color: "#FFF", borderRadius: 8, border: "none", padding: "7px 14px", fontSize: "0.8rem", fontWeight: 700, display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}
-                >
-                  <Plus size={15} /> Add Vehicle
-                </button>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button
+                    onClick={() => handleToggleUserAdminRole(selectedUser)}
+                    style={{
+                      background: selectedUser.is_admin ? "#FEF2F2" : "#F3F4F6",
+                      color: selectedUser.is_admin ? "#DC2626" : "#374151",
+                      border: `1px solid ${selectedUser.is_admin ? "#FCA5A5" : "#D1D5DB"}`,
+                      borderRadius: 8,
+                      padding: "7px 12px",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      cursor: "pointer",
+                    }}
+                    title={selectedUser.is_admin ? "Revoke administrator privileges" : "Grant administrator privileges"}
+                  >
+                    <UserCheck size={14} />
+                    {selectedUser.is_admin ? "Revoke Admin" : "Make Admin"}
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenAddVehicle(selectedUser.id)}
+                    style={{ background: "#FF4D00", color: "#FFF", borderRadius: 8, border: "none", padding: "7px 14px", fontSize: "0.8rem", fontWeight: 700, display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}
+                  >
+                    <Plus size={15} /> Add Vehicle
+                  </button>
+                </div>
               </div>
 
               {/* Sub tabs for selected user */}
@@ -1091,10 +1138,12 @@ export default function AdminPanel() {
                 <input
                   type="checkbox"
                   checked={localSettings.imageOptimizationMode === "saver"}
-                  onChange={() => {
+                  onChange={async () => {
                     const updated = { ...localSettings, imageOptimizationMode: localSettings.imageOptimizationMode === "saver" ? "standard" : "saver" };
                     setLocalSettings(updated);
-                    saveAdminSettings(updated);
+                    if (saveAdminSettings) {
+                      await saveAdminSettings(updated);
+                    }
                   }}
                 />
                 <span className="ios-slider"></span>

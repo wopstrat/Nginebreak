@@ -70,12 +70,12 @@ export function GarageProvider({ children }) {
   useEffect(() => { currentUserRef.current = state.currentUser; }, [state.currentUser]);
   useEffect(() => { vehiclesRef.current = state.vehicles; }, [state.vehicles]);
 
-  // Sync admin state whenever currentUser or admin events change
+  // Sync admin state whenever currentUser, user profile, or admin events change
   useEffect(() => {
     const syncAdmin = () => {
-      const real = isRealAdmin(state.currentUser);
+      const real = isRealAdmin(state.currentUser, state.user);
       const view = getAdminViewMode();
-      const userAdmin = isUserAdmin(state.currentUser);
+      const userAdmin = isUserAdmin(state.currentUser, state.user);
       const settings = getAdminSettings();
       dispatch({
         type: "SET_ADMIN_STATE",
@@ -94,7 +94,7 @@ export function GarageProvider({ children }) {
       window.removeEventListener("admin_state_changed", syncAdmin);
       window.removeEventListener("admin_settings_changed", syncAdmin);
     };
-  }, [state.currentUser]);
+  }, [state.currentUser, state.user]);
 
   // -- Auth session listener ----------------------------------
   useEffect(() => {
@@ -126,8 +126,8 @@ export function GarageProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       dispatch({ type: "SET_AUTH", user: session?.user ?? null });
       if (session?.user) {
-        if (isRealAdmin(session.user)) {
-          activateAdminModeUtil(session.user.email);
+        if (isRealAdmin(session.user, state.user)) {
+          activateAdminModeUtil(session.user.email, session.user, state.user);
         }
         ensureProfile(session.user);
         loadData();
@@ -144,8 +144,8 @@ export function GarageProvider({ children }) {
       async (event, session) => {
         dispatch({ type: "SET_AUTH", user: session?.user ?? null });
         if (session?.user) {
-          if (isRealAdmin(session.user)) {
-            activateAdminModeUtil(session.user.email);
+          if (isRealAdmin(session.user, state.user)) {
+            activateAdminModeUtil(session.user.email, session.user, state.user);
           }
           ensureProfile(session.user);
           loadData();
@@ -268,12 +268,56 @@ export function GarageProvider({ children }) {
         if (status === "SUBSCRIBED") console.log("[GarageContext] Realtime: service_history channel active");
       });
 
+    // Channel 5: admin_settings — live reflection across all users & browsers in production
+    const adminSettingsChannel = supabase
+      .channel("live-admin-settings-" + userId)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "admin_settings" },
+        (payload) => {
+          const cloudSettings = payload.new?.settings;
+          if (cloudSettings) {
+            const merged = { ...getAdminSettings(), ...cloudSettings };
+            try {
+              localStorage.setItem("nginebreak_admin_settings", JSON.stringify(merged));
+            } catch (_) {}
+            dispatch({
+              type: "SET_ADMIN_STATE",
+              isRealAdminUser: isRealAdmin(state.currentUser, state.user),
+              isAdmin: isUserAdmin(state.currentUser, state.user),
+              adminViewMode: getAdminViewMode(),
+              adminSettings: merged,
+            });
+            window.dispatchEvent(new CustomEvent("admin_settings_changed", { detail: merged }));
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") console.log("[GarageContext] Realtime: admin_settings channel active");
+      });
+
+    // Channel 6: profiles — live reflection of admin role changes
+    const profilesChannel = supabase
+      .channel("live-profiles-" + userId)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
+        async () => {
+          await refreshData();
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") console.log("[GarageContext] Realtime: profiles channel active");
+      });
+
     // Cleanup all realtime channels on user change or unmount
     return () => {
       supabase.removeChannel(vehiclesChannel);
       supabase.removeChannel(odometerChannel);
       supabase.removeChannel(modulesChannel);
       supabase.removeChannel(serviceChannel);
+      supabase.removeChannel(adminSettingsChannel);
+      supabase.removeChannel(profilesChannel);
     };
   }, [state.currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -290,6 +334,77 @@ export function GarageProvider({ children }) {
       dispatch({ type: "SET_LOADING", value: false });
     }
   }
+
+  // Public refreshData — used by AdminPanel after CRUD mutations
+  const refreshData = async () => {
+    try {
+      const data = await StorageService.getData();
+      dispatch({ type: "LOAD_DATA", data });
+      if (data?.vehicles) {
+        notificationService.checkMaintenanceNotifications(data.vehicles, state.currentUser?.id);
+      }
+    } catch (err) {
+      console.error("[GarageContext] refreshData failed:", err.message);
+    }
+  };
+
+  // ── Admin Settings: load from Supabase, fall back to localStorage ──
+  const loadAdminSettingsFromCloud = async () => {
+    if (!isSupabaseConfigured() || !supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from("admin_settings")
+        .select("settings")
+        .eq("id", 1)
+        .maybeSingle();
+      if (!error && data?.settings) {
+        const merged = { ...getAdminSettings(), ...data.settings };
+        // Sync to localStorage so getAdminSettings() picks it up
+        try { localStorage.setItem("nginebreak_admin_settings", JSON.stringify(merged)); } catch (_) {}
+        dispatch({
+          type: "SET_ADMIN_STATE",
+          isRealAdminUser: isRealAdmin(state.currentUser, state.user),
+          isAdmin: isUserAdmin(state.currentUser, state.user),
+          adminViewMode: getAdminViewMode(),
+          adminSettings: merged,
+        });
+        window.dispatchEvent(new CustomEvent("admin_settings_changed", { detail: merged }));
+      }
+    } catch (err) {
+      console.warn("[GarageContext] loadAdminSettingsFromCloud:", err.message);
+    }
+  };
+
+  // Load cloud admin settings once on mount
+  useEffect(() => {
+    loadAdminSettingsFromCloud();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Override saveAdminSettings to also persist to Supabase
+  const saveAdminSettingsToCloud = async (newSettings) => {
+    const merged = saveAdminSettingsUtil(newSettings); // saves to localStorage + fires event
+    dispatch({
+      type: "SET_ADMIN_STATE",
+      isRealAdminUser: isRealAdmin(state.currentUser, state.user),
+      isAdmin: isUserAdmin(state.currentUser, state.user),
+      adminViewMode: getAdminViewMode(),
+      adminSettings: merged,
+    });
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { error } = await supabase.from("admin_settings").upsert(
+          { id: 1, settings: merged, updated_at: new Date().toISOString() },
+          { onConflict: "id" }
+        );
+        if (error) {
+          console.warn("[GarageContext] saveAdminSettings cloud sync warning:", error.message);
+        }
+      } catch (err) {
+        console.warn("[GarageContext] saveAdminSettings cloud sync failed:", err.message);
+      }
+    }
+    return merged;
+  };
 
   // -- Auth Actions -------------------------------------------
   const login = async (email, password) => {
@@ -540,7 +655,7 @@ export function GarageProvider({ children }) {
   const toggleAdminViewMode = () => toggleAdminViewModeUtil();
   const activateAdminMode = (email) => activateAdminModeUtil(email);
   const deactivateAdminMode = () => deactivateAdminModeUtil();
-  const saveAdminSettings = (settings) => saveAdminSettingsUtil(settings);
+  const saveAdminSettings = saveAdminSettingsToCloud;
 
   return (
     <GarageContext.Provider
@@ -556,6 +671,7 @@ export function GarageProvider({ children }) {
         activateAdminMode,
         deactivateAdminMode,
         saveAdminSettings,
+        refreshData,
         // Onboarding
         isOnboardingCompleted,
         setOnboardingCompleted,

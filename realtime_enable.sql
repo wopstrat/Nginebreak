@@ -13,6 +13,8 @@ ALTER TABLE public.vehicles REPLICA IDENTITY FULL;
 ALTER TABLE public.odometer_history REPLICA IDENTITY FULL;
 ALTER TABLE public.maintenance_modules REPLICA IDENTITY FULL;
 ALTER TABLE public.service_history REPLICA IDENTITY FULL;
+ALTER TABLE public.admin_settings REPLICA IDENTITY FULL;
+ALTER TABLE public.profiles REPLICA IDENTITY FULL;
 
 -- Add tables to the Supabase Realtime publication safely (checks if already added)
 DO $$
@@ -43,6 +45,20 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND tablename = 'service_history'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.service_history;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'admin_settings'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.admin_settings;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'profiles'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
   END IF;
 END $$;
 

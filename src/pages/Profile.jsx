@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useGarage } from '../context/GarageContext';
 import { STATUS } from '../services/CalculationEngine';
 import {
   setAdminViewMode,
   getAdminSettings,
-  saveAdminSettings,
 } from '../utils/adminAuth';
 import {
   Pencil,
@@ -154,7 +154,18 @@ function SettingRow({ icon: Icon, label, desc, right, badge }) {
 }
 
 export default function Profile() {
-  const { vehicles, user, currentUser, logout, updateUserProfile, isRealAdminUser, adminViewMode, adminSettings } = useGarage();
+  const {
+    vehicles,
+    user,
+    currentUser,
+    logout,
+    updateUserProfile,
+    isRealAdminUser,
+    adminViewMode,
+    adminSettings,
+    saveAdminSettings,
+  } = useGarage();
+  const navigate = useNavigate();
 
   const [showGuideModal, setShowGuideModal] = useState(false);
 
@@ -311,9 +322,12 @@ export default function Profile() {
   };
 
   // Handler to update an admin setting
-  const updateSetting = (key, val) => {
-    const updated = saveAdminSettings({ [key]: val });
-    setAdminSettings(updated);
+  const updateSetting = async (key, val) => {
+    const updated = { ...(adminSettings || localAdminSettings), [key]: val };
+    setLocalAdminSettings(updated);
+    if (saveAdminSettings) {
+      await saveAdminSettings(updated);
+    }
   };
 
   // 1-Click Toggle for Admin View
@@ -418,26 +432,51 @@ export default function Profile() {
             </div>
           </div>
 
-          <button
-            onClick={handleToggleViewMode}
-            style={{
-              background: adminViewMode === 'admin' ? '#0F172A' : 'var(--accent-color)',
-              color: '#FFFFFF',
-              border: 'none',
-              borderRadius: 8,
-              padding: '8px 14px',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            }}
-          >
-            {adminViewMode === 'admin' ? <Eye size={13} /> : <Shield size={13} />}
-            {adminViewMode === 'admin' ? 'Switch to User View' : 'Switch to Admin View'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {adminViewMode === 'admin' && (
+              <button
+                onClick={() => navigate('/admin')}
+                style={{
+                  background: 'var(--accent-color)',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 14px',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  boxShadow: '0 2px 8px rgba(249,115,22,0.25)',
+                }}
+              >
+                <Sliders size={13} />
+                Open Admin Console
+              </button>
+            )}
+
+            <button
+              onClick={handleToggleViewMode}
+              style={{
+                background: adminViewMode === 'admin' ? '#0F172A' : 'var(--accent-color)',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 14px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              }}
+            >
+              {adminViewMode === 'admin' ? <Eye size={13} /> : <Shield size={13} />}
+              {adminViewMode === 'admin' ? 'Switch to User View' : 'Switch to Admin View'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -1070,112 +1109,119 @@ export default function Profile() {
             </span>
           </div>
 
-          {/* 1. Image Optimizer Mode Switch */}
-          <SettingRow
-            icon={Zap}
-            label="Image Optimizer: 1MP Ultra-Saver"
-            badge={adminSettings.imageOptimizationMode === 'saver' ? '1MP Active' : '1920px Full HD'}
-            desc={
-              adminSettings.imageOptimizationMode === 'saver'
-                ? 'Compresses photos to ~1MP (~50KB-80KB WebP) to save Supabase free tier storage'
-                : 'Compresses photos to 1920px Full HD (~100KB-160KB WebP)'
-            }
-            right={
-              <Toggle
-                id="toggle-image-saver"
-                checked={adminSettings.imageOptimizationMode === 'saver'}
-                onChange={e =>
-                  updateSetting('imageOptimizationMode', e.target.checked ? 'saver' : 'standard')
-                }
-              />
-            }
-          />
+          {(() => {
+            const effectiveSettings = adminSettings || localAdminSettings || {};
+            return (
+              <>
+                {/* 1. Image Optimizer Mode Switch */}
+                <SettingRow
+                  icon={Zap}
+                  label="Image Optimizer: 1MP Ultra-Saver"
+                  badge={effectiveSettings.imageOptimizationMode === 'saver' ? '1MP Active' : '1920px Full HD'}
+                  desc={
+                    effectiveSettings.imageOptimizationMode === 'saver'
+                      ? 'Compresses photos to ~1MP (~50KB-80KB WebP) to save Supabase free tier storage'
+                      : 'Compresses photos to 1920px Full HD (~100KB-160KB WebP)'
+                  }
+                  right={
+                    <Toggle
+                      id="toggle-image-saver"
+                      checked={effectiveSettings.imageOptimizationMode === 'saver'}
+                      onChange={e =>
+                        updateSetting('imageOptimizationMode', e.target.checked ? 'saver' : 'standard')
+                      }
+                    />
+                  }
+                />
 
-          {/* 2. Service Reminders Switch */}
-          <SettingRow
-            icon={Bell}
-            label="Service Reminders"
-            desc="Global background reminder notifications"
-            right={
-              <Toggle
-                id="notif-service"
-                checked={adminSettings.notifService}
-                onChange={e => updateSetting('notifService', e.target.checked)}
-              />
-            }
-          />
+                {/* 2. Service Reminders Switch */}
+                <SettingRow
+                  icon={Bell}
+                  label="Service Reminders"
+                  desc="Global background reminder notifications"
+                  right={
+                    <Toggle
+                      id="notif-service"
+                      checked={!!effectiveSettings.notifService}
+                      onChange={e => updateSetting('notifService', e.target.checked)}
+                    />
+                  }
+                />
 
-          {/* 3. Overdue Alerts Switch */}
-          <SettingRow
-            icon={AlertTriangle}
-            label="Overdue Alerts"
-            desc="Broadcast urgent alerts when service is overdue"
-            right={
-              <Toggle
-                id="notif-overdue"
-                checked={adminSettings.notifOverdue}
-                onChange={e => updateSetting('notifOverdue', e.target.checked)}
-              />
-            }
-          />
+                {/* 3. Overdue Alerts Switch */}
+                <SettingRow
+                  icon={AlertTriangle}
+                  label="Overdue Alerts"
+                  desc="Broadcast urgent alerts when service is overdue"
+                  right={
+                    <Toggle
+                      id="notif-overdue"
+                      checked={!!effectiveSettings.notifOverdue}
+                      onChange={e => updateSetting('notifOverdue', e.target.checked)}
+                    />
+                  }
+                />
 
-          {/* 4. App Updates Switch */}
-          <SettingRow
-            icon={BellOff}
-            label="App Updates & Broadcasts"
-            desc="Notify garage members about new app versions"
-            right={
-              <Toggle
-                id="notif-updates"
-                checked={adminSettings.notifUpdates}
-                onChange={e => updateSetting('notifUpdates', e.target.checked)}
-              />
-            }
-          />
+                {/* 4. App Updates Switch */}
+                <SettingRow
+                  icon={BellOff}
+                  label="App Updates & Broadcasts"
+                  desc="Notify garage members about new app versions"
+                  right={
+                    <Toggle
+                      id="notif-updates"
+                      checked={!!effectiveSettings.notifUpdates}
+                      onChange={e => updateSetting('notifUpdates', e.target.checked)}
+                    />
+                  }
+                />
 
-          {/* 5. Dark Mode Switch */}
-          <SettingRow
-            icon={Moon}
-            label="Dark Mode"
-            desc="Toggle UI theme mode preference"
-            right={
-              <Toggle
-                id="dark-mode"
-                checked={adminSettings.darkMode}
-                onChange={e => updateSetting('darkMode', e.target.checked)}
-              />
-            }
-          />
+                {/* 5. Dark Mode Switch */}
+                <SettingRow
+                  icon={Moon}
+                  label="Dark Mode"
+                  desc="Toggle UI theme mode preference"
+                  right={
+                    <Toggle
+                      id="dark-mode"
+                      checked={!!effectiveSettings.darkMode}
+                      onChange={e => updateSetting('darkMode', e.target.checked)}
+                    />
+                  }
+                />
 
-          {/* 6. System Maintenance Mode Switch */}
-          <SettingRow
-            icon={Database}
-            label="Maintenance / Read-Only Mode"
-            badge={adminSettings.maintenanceMode ? 'ACTIVE' : null}
-            desc="Lock vehicle edits during database migrations"
-            right={
-              <Toggle
-                id="system-maintenance"
-                checked={adminSettings.maintenanceMode}
-                onChange={e => updateSetting('maintenanceMode', e.target.checked)}
-              />
-            }
-          />
+                {/* 6. System Maintenance Mode Switch */}
+                <SettingRow
+                  icon={Database}
+                  label="Maintenance / Read-Only Mode"
+                  badge={effectiveSettings.maintenanceMode ? 'ACTIVE' : null}
+                  desc="Lock vehicle edits during database migrations"
+                  right={
+                    <Toggle
+                      id="system-maintenance"
+                      checked={!!effectiveSettings.maintenanceMode}
+                      onChange={e => updateSetting('maintenanceMode', e.target.checked)}
+                    />
+                  }
+                />
 
-          {/* 7. Beta & Staging Feature Flag Switch */}
-          <SettingRow
-            icon={Cpu}
-            label="Beta & Staging Feature Flag"
-            badge={adminSettings.betaTestingMode ? 'BETA ACTIVE' : null}
-            desc="Unlock experimental features for Admin & internal testers"
-            right={
-              <Toggle
-                id="beta-testing"
-                checked={adminSettings.betaTestingMode}
-                onChange={e => updateSetting('betaTestingMode', e.target.checked)}
-              />
-            }
-          />
+                {/* 7. Beta & Staging Feature Flag Switch */}
+                <SettingRow
+                  icon={Cpu}
+                  label="Beta & Staging Feature Flag"
+                  badge={effectiveSettings.betaTestingMode ? 'BETA ACTIVE' : null}
+                  desc="Unlock experimental features for Admin & internal testers"
+                  right={
+                    <Toggle
+                      id="beta-testing"
+                      checked={!!effectiveSettings.betaTestingMode}
+                      onChange={e => updateSetting('betaTestingMode', e.target.checked)}
+                    />
+                  }
+                />
+              </>
+            );
+          })()}
 
           {/* 8. Superuser Push Notification Test Broadcast */}
           <div
