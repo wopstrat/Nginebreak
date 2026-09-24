@@ -213,14 +213,14 @@ export default function GarageDashboard() {
           <h1
             style={{
               fontSize: "1.48rem",
-              fontWeight: 800,
+              fontWeight: 600,
               margin: 0,
               color: "var(--text-primary)",
               letterSpacing: "-0.02em",
               lineHeight: 1.2,
             }}
           >
-            Hey, {firstName} 👋
+            Hey, {firstName}
           </h1>
           <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: 3 }}>
             Keep your vehicle in the best shape.
