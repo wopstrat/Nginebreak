@@ -1,65 +1,124 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { registerSW } from "virtual:pwa-register";
-import updateService from "../services/UpdateService";
+import updateService, { compareSemver } from "../services/UpdateService";
+import { supabase } from "../services/supabaseClient";
 import { CURRENT_APP_VERSION } from "../config/version";
-import { RefreshCw, Sparkles, ChevronDown, ChevronUp, X, CheckCircle2 } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, X, CheckCircle2 } from "lucide-react";
 import "./UpdateBanner.css";
 
-// Key used to suppress the banner for the whole session after user clicks Update
-const UPDATE_CLICKED_KEY = "nginebreak_update_clicked";
+// Stores the version the user already acted on (dismissed or updated).
+// Only suppresses THAT specific version — newer versions will still show.
+const DISMISSED_VERSION_KEY = "nginebreak_dismissed_version";
+
+function getDismissedVersion() {
+  try { return sessionStorage.getItem(DISMISSED_VERSION_KEY) || ""; } catch (_) { return ""; }
+}
+function setDismissedVersion(version) {
+  try { sessionStorage.setItem(DISMISSED_VERSION_KEY, version); } catch (_) {}
+}
 
 export default function UpdateBanner() {
-  // If user already clicked Update this session (even after a reload), stay hidden
   const [needRefresh, setNeedRefresh] = useState(false);
   const [offlineReady, setOfflineReady] = useState(false);
   const [swRegistration, setSwRegistration] = useState(null);
-  const [dismissed, setDismissed] = useState(
-    () => sessionStorage.getItem(UPDATE_CLICKED_KEY) === "1"
-  );
+  const [dismissed, setDismissed] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [latestRelease, setLatestRelease] = useState(null);
   const [updating, setUpdating] = useState(false);
 
+  // -----------------------------------------------------------------
+  // Evaluate whether a DB release should trigger the banner
+  // -----------------------------------------------------------------
+  const evaluateRelease = (release) => {
+    if (!release?.version) return;
+    const dbVersion = release.version;
+
+    // Only show if DB version is strictly newer than what's running
+    const isNewer = compareSemver(dbVersion, CURRENT_APP_VERSION) > 0;
+    if (!isNewer) return;
+
+    // Don't show if user already dismissed/updated THIS exact version this session
+    const alreadyDismissed = getDismissedVersion() === dbVersion;
+    if (alreadyDismissed) return;
+
+    setLatestRelease(release);
+    setDismissed(false);
+    setNeedRefresh(true);
+  };
+
   useEffect(() => {
-    // 1. Register Service Worker with prompt mode handling
-    const updateSW = registerSW({
+    // 1. Register Service Worker (prompt mode) — detects new SW waiting
+    registerSW({
       onNeedRefresh(registration) {
-        console.log("[PWA] New update available & waiting service worker detected.");
+        console.log("[PWA] New SW waiting detected.");
         setSwRegistration(registration);
         setNeedRefresh(true);
       },
       onOfflineReady() {
-        console.log("[PWA] Application is offline ready.");
+        console.log("[PWA] App offline ready.");
         setOfflineReady(true);
         setTimeout(() => setOfflineReady(false), 4000);
       },
     });
 
-    // 2. Secondary check against Supabase DB release records
+    // 2. Initial DB check on mount
     const checkDbRelease = async () => {
       try {
         const info = await updateService.checkForUpdates();
         if (info.hasUpdate) {
-          setLatestRelease(info.release);
-          setNeedRefresh(true);
+          evaluateRelease(info.release);
         }
-      } catch (err) {
-        // Fallback silently without breaking the app
+      } catch (_) {
+        // Fail silently — never break the app
       }
     };
-
     checkDbRelease();
 
-    return () => {
-      // Cleanup if needed
-    };
-  }, []);
+    // 3. Supabase Realtime — listen for new releases pushed by admin in real time.
+    //    This fires for INSERT and UPDATE on app_releases so active users are
+    //    notified the moment admin marks a new version as current — no page reload needed.
+    let realtimeChannel = null;
+    if (supabase) {
+      realtimeChannel = supabase
+        .channel("live-app-releases")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "app_releases" },
+          async (payload) => {
+            const row = payload.new || payload.old;
+            // Only react when a release is being marked as current
+            if (!row?.is_current) return;
+            console.log("[UpdateBanner] Realtime: new current release →", row.version);
+            // Re-fetch full record from DB and evaluate
+            try {
+              const info = await updateService.checkForUpdates();
+              if (info.hasUpdate) {
+                evaluateRelease(info.release);
+              }
+            } catch (_) {}
+          }
+        )
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED")
+            console.log("[UpdateBanner] Realtime: app_releases channel active");
+        });
+    }
 
+    return () => {
+      if (realtimeChannel) {
+        supabase?.removeChannel(realtimeChannel);
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------------------------
+  // Render guard
+  // -----------------------------------------------------------------
   if (dismissed || (!needRefresh && !offlineReady)) {
     return null;
   }
 
-  // Toast for Offline Ready notification
+  // Offline-ready toast
   if (offlineReady && !needRefresh) {
     return (
       <div className="update-banner-container offline-toast">
@@ -81,18 +140,30 @@ export default function UpdateBanner() {
         .filter(Boolean)
     : [];
 
+  // -----------------------------------------------------------------
+  // Handlers
+  // -----------------------------------------------------------------
   const handleUpdateClick = async () => {
-    // Mark session immediately so banner stays hidden even after page reload
-    sessionStorage.setItem(UPDATE_CLICKED_KEY, "1");
+    // Record which version was acted on — suppresses THIS version after
+    // reload but allows any future newer version to show through
+    if (latestRelease?.version) {
+      setDismissedVersion(latestRelease.version);
+    }
     setUpdating(true);
     setDismissed(true);
     await updateService.activateUpdate(swRegistration);
   };
 
   const handleLaterClick = () => {
+    if (latestRelease?.version) {
+      setDismissedVersion(latestRelease.version);
+    }
     setDismissed(true);
   };
 
+  // -----------------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------------
   return (
     <div className="update-banner-container animate-slide-up" role="alert" aria-live="polite">
       <div className="update-banner-card">
@@ -103,7 +174,8 @@ export default function UpdateBanner() {
 
           <div className="update-text-area">
             <div className="update-headline">
-              New NGINEBREAK update available {newVersionTag && <span className="version-pill">{newVersionTag}</span>}
+              New NGINEBREAK update available{" "}
+              {newVersionTag && <span className="version-pill">{newVersionTag}</span>}
             </div>
             <div className="update-subtext">Refresh to use the latest production version.</div>
 
@@ -129,7 +201,7 @@ export default function UpdateBanner() {
           </button>
         </div>
 
-        {/* Collapsible Release Highlights */}
+        {/* Collapsible Release Notes */}
         {showNotes && (
           <div className="update-notes-box">
             <div className="update-notes-title">{releaseTitle}</div>
@@ -141,7 +213,7 @@ export default function UpdateBanner() {
           </div>
         )}
 
-        {/* Actions Bar */}
+        {/* Actions */}
         <div className="update-actions-bar">
           <button
             className="btn-update-later"
@@ -164,3 +236,4 @@ export default function UpdateBanner() {
     </div>
   );
 }
+
