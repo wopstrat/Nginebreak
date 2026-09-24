@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from "react";
+import React, { createContext, useContext, useReducer, useEffect, useRef } from "react";
 import StorageService from "../services/StorageService";
 import { supabase, isSupabaseConfigured } from "../services/supabaseClient";
 import notificationService from "../services/NotificationService";
@@ -63,6 +63,12 @@ function garageReducer(state, action) {
 
 export function GarageProvider({ children }) {
   const [state, dispatch] = useReducer(garageReducer, initialState);
+
+  // Refs so realtime callbacks always access latest state without stale closures
+  const currentUserRef = useRef(state.currentUser);
+  const vehiclesRef = useRef(state.vehicles);
+  useEffect(() => { currentUserRef.current = state.currentUser; }, [state.currentUser]);
+  useEffect(() => { vehiclesRef.current = state.vehicles; }, [state.vehicles]);
 
   // Sync admin state whenever currentUser or admin events change
   useEffect(() => {
@@ -156,7 +162,120 @@ export function GarageProvider({ children }) {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ------------------------------------------------------------------
+  // Supabase Realtime Live Subscriptions
+  // Subscribes once currentUser is resolved. Listens to all tables that
+  // can be changed by a shared garage partner.
+  //
+  // When a change arrives:
+  //   1. Re-fetch fresh data (refreshData) so UI updates instantly
+  //   2. Fire an in-app push notification for the current user
+  //
+  // This is the core fix: without this, users must close/reopen the app.
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supabase || !state.currentUser) return;
+    const userId = state.currentUser.id;
+
+    // Silently reload all data and run maintenance checks
+    const refreshData = async () => {
+      try {
+        const data = await StorageService.getData();
+        dispatch({ type: "LOAD_DATA", data });
+        if (data?.vehicles) {
+          notificationService.checkMaintenanceNotifications(data.vehicles, userId);
+        }
+      } catch (err) {
+        console.error("[GarageContext] Realtime refresh failed:", err.message);
+      }
+    };
+
+    // Get vehicle display name from latest in-memory list (via ref)
+    const getVehicleName = (vehicleId) => {
+      const v = (vehiclesRef.current || []).find((v) => v.id === vehicleId);
+      if (!v) return "Your Vehicle";
+      return ((v.make || "") + " " + (v.model || "")).trim() || "Your Vehicle";
+    };
+
+    // Channel 1: vehicles — any field (odometer, make, model) updated by partner
+    const vehiclesChannel = supabase
+      .channel("live-vehicles-" + userId)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "vehicles" }, async () => {
+        await refreshData();
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") console.log("[GarageContext] Realtime: vehicles channel active");
+      });
+
+    // Channel 2: odometer_history — partner inserted a new odo reading
+    const odometerChannel = supabase
+      .channel("live-odometer-" + userId)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "odometer_history" }, async (payload) => {
+        const row = payload.new;
+        if (!row) return;
+        // Skip rows inserted by this user — local dispatch already handled it
+        if (row.user_id === userId) return;
+        await refreshData();
+        // Notify this user about the partner's odo update
+        notificationService.sendNotification({
+          title: "\uD83D\uDE97 NGINEBREAK",
+          body: (row.added_by_name || "Vehicle partner") + " updated the odometer.\n" + getVehicleName(row.vehicle_id) + " \u2014 " + Number(row.odometer_value).toLocaleString() + " km.",
+          tag: "odo-" + row.vehicle_id + "-" + Date.now(),
+          data: { url: "/vehicle/" + row.vehicle_id },
+        });
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") console.log("[GarageContext] Realtime: odometer channel active");
+      });
+
+    // Channel 3: maintenance_modules — partner added/modified a service module
+    const modulesChannel = supabase
+      .channel("live-modules-" + userId)
+      .on("postgres_changes", { event: "*", schema: "public", table: "maintenance_modules" }, async (payload) => {
+        await refreshData();
+        // Notify on new module additions
+        if (payload.eventType === "INSERT" && payload.new) {
+          const row = payload.new;
+          notificationService.sendNotification({
+            title: "\uD83D\uDD27 NGINEBREAK",
+            body: "New service added: " + (row.name || "Maintenance") + ".\n" + getVehicleName(row.vehicle_id) + ".",
+            tag: "module-add-" + row.id + "-" + Date.now(),
+            data: { url: "/vehicle/" + row.vehicle_id },
+          });
+        }
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") console.log("[GarageContext] Realtime: modules channel active");
+      });
+
+    // Channel 4: service_history — partner completed a service
+    const serviceChannel = supabase
+      .channel("live-service-" + userId)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "service_history" }, async (payload) => {
+        const row = payload.new;
+        if (!row) return;
+        await refreshData();
+        notificationService.sendNotification({
+          title: "\u2705 NGINEBREAK",
+          body: "Service completed: " + (row.module_name || "Maintenance") + ".\n" + getVehicleName(row.vehicle_id) + ".",
+          tag: "service-done-" + row.id + "-" + Date.now(),
+          data: { url: "/vehicle/" + row.vehicle_id },
+        });
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") console.log("[GarageContext] Realtime: service_history channel active");
+      });
+
+    // Cleanup all realtime channels on user change or unmount
+    return () => {
+      supabase.removeChannel(vehiclesChannel);
+      supabase.removeChannel(odometerChannel);
+      supabase.removeChannel(modulesChannel);
+      supabase.removeChannel(serviceChannel);
+    };
+  }, [state.currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadData() {
     dispatch({ type: "SET_LOADING", value: true });
