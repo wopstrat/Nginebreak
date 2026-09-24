@@ -5,11 +5,17 @@ import { CURRENT_APP_VERSION } from "../config/version";
 import { RefreshCw, Sparkles, ChevronDown, ChevronUp, X, CheckCircle2 } from "lucide-react";
 import "./UpdateBanner.css";
 
+// Key used to suppress the banner for the whole session after user clicks Update
+const UPDATE_CLICKED_KEY = "nginebreak_update_clicked";
+
 export default function UpdateBanner() {
+  // If user already clicked Update this session (even after a reload), stay hidden
   const [needRefresh, setNeedRefresh] = useState(false);
   const [offlineReady, setOfflineReady] = useState(false);
   const [swRegistration, setSwRegistration] = useState(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(
+    () => sessionStorage.getItem(UPDATE_CLICKED_KEY) === "1"
+  );
   const [showNotes, setShowNotes] = useState(false);
   const [latestRelease, setLatestRelease] = useState(null);
   const [updating, setUpdating] = useState(false);
@@ -76,12 +82,11 @@ export default function UpdateBanner() {
     : [];
 
   const handleUpdateClick = async () => {
+    // Mark session immediately so banner stays hidden even after page reload
+    sessionStorage.setItem(UPDATE_CLICKED_KEY, "1");
     setUpdating(true);
-    await updateService.activateUpdate(swRegistration);
-    // Dismiss the banner after triggering the update.
-    // If the page reloads (SW activated), the banner is naturally gone.
-    // If reload is delayed, this prevents the banner from staying open.
     setDismissed(true);
+    await updateService.activateUpdate(swRegistration);
   };
 
   const handleLaterClick = () => {
