@@ -1304,29 +1304,7 @@ export default function Profile() {
             </button>
           </div>
         </div>
-      ) : (
-        /* Regular User View: Switching options are hidden! */
-        <div
-          className="garage-card"
-          style={{
-            padding: '14px 18px',
-            marginBottom: 12,
-            background: 'rgba(255,255,255,0.02)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Shield size={18} color="var(--text-muted)" />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                System Settings Managed by Admin
-              </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                System-wide switches and storage rules are configured by the project administrator.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      ) : null}
 
       {/* ── Help Section ─────────────────────────────────── */}
       <div className="garage-card" style={{ padding: '14px 18px', marginBottom: 12 }}>
