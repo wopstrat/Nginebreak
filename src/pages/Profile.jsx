@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import UserGuideModal from '../components/UserGuideModal';
 import notificationService from '../services/NotificationService';
+import { CURRENT_APP_VERSION } from '../config/version';
 
 const LEVELS = [
   { min: 0,   label: 'Driver',     emoji: '🚗' },
@@ -1383,6 +1384,41 @@ export default function Profile() {
         </button>
       </div>
 
+      {/* ── About NGINEBREAK Section ────────────────────── */}
+      <div className="garage-card" style={{ padding: '14px 18px', marginBottom: 12 }}>
+        <div style={{
+          fontSize: '0.68rem',
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 8,
+        }}>
+          About NGINEBREAK
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              NGINEBREAK
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Version {CURRENT_APP_VERSION}
+            </div>
+          </div>
+          <div style={{
+            fontSize: '0.68rem',
+            fontWeight: 700,
+            padding: '3px 9px',
+            borderRadius: 12,
+            background: 'rgba(255, 77, 0, 0.1)',
+            color: 'var(--accent-color)',
+            border: '1px solid rgba(255, 77, 0, 0.2)'
+          }}>
+            v{CURRENT_APP_VERSION}
+          </div>
+        </div>
+      </div>
+
       {/* ── Sign Out Zone ───────────────────────────────── */}
       <div className="garage-card" style={{ padding: '14px 18px', marginBottom: 24 }}>
         <button
@@ -1421,10 +1457,10 @@ export default function Profile() {
         </button>
       </div>
 
-      {/* Tiny version tag */}
+      {/* Version tag */}
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
-          NGINEBREAK · {isAdminView ? 'ADMIN CONSOLE ACTIVE' : 'MVP v0.1.0'}
+          NGINEBREAK · {isAdminView ? 'ADMIN CONSOLE ACTIVE' : `Version ${CURRENT_APP_VERSION}`}
         </span>
       </div>
 

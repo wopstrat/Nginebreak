@@ -1,0 +1,234 @@
+/* UpdateBanner.css — NGINEBREAK Non-Intrusive PWA Update Banner */
+
+.update-banner-container {
+  position: fixed;
+  bottom: 84px; /* Positioned cleanly above BottomNav on mobile */
+  right: 16px;
+  left: 16px;
+  max-width: 440px;
+  margin: 0 auto;
+  z-index: 9999;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  pointer-events: auto;
+}
+
+@media (min-width: 640px) {
+  .update-banner-container {
+    left: auto;
+    bottom: 24px;
+    right: 24px;
+    width: 380px;
+  }
+}
+
+.update-banner-card {
+  background: rgba(18, 18, 24, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 77, 0, 0.2);
+  color: #f3f4f6;
+}
+
+.update-banner-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.update-icon-wrapper {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(255, 77, 0, 0.15);
+  color: #ff4d00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.update-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.update-text-area {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-headline {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.version-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(255, 77, 0, 0.2);
+  color: #ff6b26;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 77, 0, 0.3);
+}
+
+.update-subtext {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  margin-top: 3px;
+  line-height: 1.3;
+}
+
+.update-close-btn {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.update-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.whats-new-toggle {
+  background: transparent;
+  border: none;
+  color: #ff4d00;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0;
+  margin-top: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.update-notes-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  border-left: 3px solid #ff4d00;
+}
+
+.update-notes-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #e5e7eb;
+  margin-bottom: 4px;
+}
+
+.update-notes-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.74rem;
+  color: #9ca3af;
+}
+
+.update-notes-list li {
+  margin-bottom: 2px;
+}
+
+.update-actions-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.btn-update-later {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-update-later:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.btn-update-now {
+  background: #ff4d00;
+  border: none;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 7px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(255, 77, 0, 0.35);
+  transition: all 0.15s ease;
+}
+
+.btn-update-now:hover {
+  background: #ff661a;
+  box-shadow: 0 4px 12px rgba(255, 77, 0, 0.5);
+}
+
+.btn-update-now:disabled,
+.btn-update-later:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Slide Up Animation */
+.animate-slide-up {
+  animation: bannerSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes bannerSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Offline Toast Variant */
+.offline-toast .update-banner-card {
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.update-icon.success {
+  color: #10b981;
+}
+
+.update-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #e5e7eb;
+}

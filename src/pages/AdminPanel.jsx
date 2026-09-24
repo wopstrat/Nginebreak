@@ -7,6 +7,8 @@ import {
   setAdminViewMode,
 } from "../utils/adminAuth";
 import "./AdminPanel.css";
+import updateService, { STATIC_RELEASES } from "../services/UpdateService";
+import { CURRENT_APP_VERSION } from "../config/version";
 import {
   Users,
   Car,
@@ -31,6 +33,10 @@ import {
   Image as ImageIcon,
   User,
   X,
+  GitBranch,
+  Tag,
+  Clock,
+  CheckCircle2,
 } from "lucide-react";
 
 export default function AdminPanel() {
@@ -92,6 +98,105 @@ export default function AdminPanel() {
   // Settings state
   const [localSettings, setLocalSettings] = useState(adminSettings || {});
 
+  // Version History State
+  const [releases, setReleases] = useState([]);
+  const [loadingReleases, setLoadingReleases] = useState(true);
+  const [showReleaseModal, setShowReleaseModal] = useState(false);
+  const [editingRelease, setEditingRelease] = useState(null);
+  const [showReleaseDetailsModal, setShowReleaseDetailsModal] = useState(false);
+  const [selectedReleaseDetails, setSelectedReleaseDetails] = useState(null);
+
+  const [releaseFormData, setReleaseFormData] = useState({
+    version: "",
+    title: "",
+    description: "",
+    release_type: "minor",
+    release_date: new Date().toISOString().split("T")[0],
+    is_current: false,
+  });
+
+  const loadReleasesData = async () => {
+    setLoadingReleases(true);
+    try {
+      const rels = await updateService.getReleases();
+      setReleases(rels);
+    } catch (err) {
+      console.error("Error loading releases:", err);
+      setReleases(STATIC_RELEASES);
+    } finally {
+      setLoadingReleases(false);
+    }
+  };
+
+  const handleOpenAddRelease = () => {
+    setEditingRelease(null);
+    setReleaseFormData({
+      version: "",
+      title: "",
+      description: "",
+      release_type: "minor",
+      release_date: new Date().toISOString().split("T")[0],
+      is_current: true,
+    });
+    setShowReleaseModal(true);
+  };
+
+  const handleOpenEditRelease = (rel) => {
+    setEditingRelease(rel);
+    setReleaseFormData({
+      version: rel.version || "",
+      title: rel.title || "",
+      description: rel.description || "",
+      release_type: rel.release_type || "minor",
+      release_date: rel.release_date || new Date().toISOString().split("T")[0],
+      is_current: !!rel.is_current,
+    });
+    setShowReleaseModal(true);
+  };
+
+  const handleSaveRelease = async (e) => {
+    e.preventDefault();
+    if (!releaseFormData.version || !releaseFormData.title) {
+      alert("Version number and Release Title are required.");
+      return;
+    }
+
+    try {
+      if (editingRelease) {
+        await updateService.updateRelease(editingRelease.id, releaseFormData);
+      } else {
+        await updateService.createRelease({
+          ...releaseFormData,
+          created_by: currentUser?.display_name || "Admin",
+        });
+      }
+      setShowReleaseModal(false);
+      await loadReleasesData();
+    } catch (err) {
+      alert("Failed to save release: " + err.message);
+    }
+  };
+
+  const handleMarkCurrentRelease = async (relId) => {
+    try {
+      await updateService.markAsCurrent(relId);
+      await loadReleasesData();
+    } catch (err) {
+      alert("Failed to mark release as current: " + err.message);
+    }
+  };
+
+  const handleDeleteRelease = async (relId, relVersion) => {
+    if (window.confirm(`Delete version release record v${relVersion}?`)) {
+      try {
+        await updateService.deleteRelease(relId);
+        await loadReleasesData();
+      } catch (err) {
+        alert("Failed to delete release: " + err.message);
+      }
+    }
+  };
+
   // Load data on mount
   const loadAdminData = async () => {
     setLoadingUsers(true);
@@ -120,6 +225,7 @@ export default function AdminPanel() {
 
   useEffect(() => {
     loadAdminData();
+    loadReleasesData();
   }, []);
 
   useEffect(() => {
@@ -474,6 +580,15 @@ export default function AdminPanel() {
           <Sliders size={16} />
           <span>System</span>
         </button>
+
+        <button
+          className={`admin-tab-item ${activeTab === "version" ? "active" : ""}`}
+          onClick={() => { setActiveTab("version"); loadReleasesData(); }}
+          style={{ borderBottom: activeTab === "version" ? "2.5px solid #FF4D00" : "2.5px solid transparent", color: activeTab === "version" ? "#FF4D00" : "#6B7280", fontWeight: activeTab === "version" ? 700 : 500 }}
+        >
+          <GitBranch size={16} />
+          <span>Version History</span>
+        </button>
       </div>
 
       {/* ====================================================== */}
@@ -481,6 +596,49 @@ export default function AdminPanel() {
       {/* ====================================================== */}
       {activeTab === "overview" && (
         <div>
+          {/* Section 0: Current Production Release */}
+          {(() => {
+            const currentRel = releases.find((r) => r.is_current) || releases[0];
+            return (
+              <div style={{ marginBottom: 20 }}>
+                <div className="admin-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <h3 className="admin-section-title" style={{ fontSize: "0.95rem", fontWeight: 800, color: "#111827", margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>Current Release</h3>
+                  <span className="admin-section-link" onClick={() => { setActiveTab("version"); loadReleasesData(); }} style={{ fontSize: "0.78rem", color: "#FF4D00", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 2 }}>
+                    View Version History <ChevronRight size={14} />
+                  </span>
+                </div>
+                <div style={{ background: "#FFFFFF", border: "1px solid #E5E7EB", borderRadius: 16, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.02)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(255, 77, 0, 0.1)", color: "#FF4D00", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <GitBranch size={20} />
+                      </div>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: "1.1rem", fontWeight: 900, color: "#111827" }}>
+                            v{currentRel?.version || CURRENT_APP_VERSION}
+                          </span>
+                          <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: "#DCFCE7", color: "#15803D" }}>
+                            CURRENT RELEASE
+                          </span>
+                        </div>
+                        <div style={{ fontSize: "0.78rem", color: "#6B7280", marginTop: 2 }}>
+                          {currentRel?.title || "Application Update System & Realtime Sync"} · Released: {currentRel?.release_date ? new Date(currentRel.release_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "24 Sep 2026"}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setActiveTab("version"); loadReleasesData(); }}
+                      style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 8, padding: "7px 14px", fontSize: "0.78rem", fontWeight: 700, color: "#374151", cursor: "pointer" }}
+                    >
+                      View Version History
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Section 1: Recent Registrations */}
           <div className="admin-section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 className="admin-section-title" style={{ fontSize: "1.05rem", fontWeight: 800, color: "#111827", margin: 0 }}>Recent Registrations</h3>
@@ -1154,6 +1312,197 @@ export default function AdminPanel() {
       )}
 
       {/* ====================================================== */}
+      {/* TAB 6: VERSION HISTORY MANAGEMENT                     */}
+      {/* ====================================================== */}
+      {activeTab === "version" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div>
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 800, color: "#111827", margin: 0 }}>Version History</h3>
+              <p style={{ fontSize: "0.8rem", color: "#6B7280", margin: "2px 0 0 0" }}>
+                Manage production application releases and user release notes.
+              </p>
+            </div>
+            <button
+              onClick={handleOpenAddRelease}
+              style={{
+                background: "#FF4D00",
+                color: "#FFFFFF",
+                border: "none",
+                borderRadius: 10,
+                padding: "8px 16px",
+                fontWeight: 700,
+                fontSize: "0.82rem",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+                boxShadow: "0 2px 6px rgba(255, 77, 0, 0.3)",
+              }}
+            >
+              <Plus size={16} />
+              Add Release
+            </button>
+          </div>
+
+          {loadingReleases ? (
+            <div style={{ padding: 40, textAlign: "center", color: "#6B7280" }}>Loading version history...</div>
+          ) : releases.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: "#6B7280", background: "#FFF", borderRadius: 16, border: "1px solid #E5E7EB" }}>
+              No releases recorded yet. Click "Add Release" to add the first version.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {releases.map((rel) => {
+                const isCur = !!rel.is_current;
+                const typeColors = {
+                  major: { bg: "#F3E8FF", text: "#7E22CE" },
+                  minor: { bg: "#EFF6FF", text: "#1D4ED8" },
+                  patch: { bg: "#ECFDF5", text: "#047857" },
+                  hotfix: { bg: "#FEF2F2", text: "#B91C1C" },
+                };
+                const tColor = typeColors[rel.release_type?.toLowerCase()] || typeColors.minor;
+
+                return (
+                  <div
+                    key={rel.id || rel.version}
+                    style={{
+                      background: "#FFFFFF",
+                      border: isCur ? "2px solid #FF4D00" : "1px solid #E5E7EB",
+                      borderRadius: 16,
+                      padding: 16,
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "1.15rem", fontWeight: 900, color: "#111827" }}>
+                            v{rel.version}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: "0.68rem",
+                              fontWeight: 700,
+                              padding: "2px 8px",
+                              borderRadius: 10,
+                              background: tColor.bg,
+                              color: tColor.text,
+                              textTransform: "capitalize",
+                            }}
+                          >
+                            {rel.release_type || "minor"}
+                          </span>
+                          {isCur && (
+                            <span
+                              style={{
+                                fontSize: "0.68rem",
+                                fontWeight: 700,
+                                padding: "2px 8px",
+                                borderRadius: 10,
+                                background: "#DCFCE7",
+                                color: "#15803D",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                              }}
+                            >
+                              <CheckCircle2 size={12} /> CURRENT
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "#1F2937", marginTop: 4 }}>
+                          {rel.title}
+                        </div>
+
+                        <div style={{ fontSize: "0.76rem", color: "#6B7280", marginTop: 4, display: "flex", alignItems: "center", gap: 12 }}>
+                          <span>Released: {new Date(rel.release_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                          <span>•</span>
+                          <span>By: {rel.created_by || "Admin"}</span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <button
+                          onClick={() => {
+                            setSelectedReleaseDetails(rel);
+                            setShowReleaseDetailsModal(true);
+                          }}
+                          style={{
+                            background: "#F3F4F6",
+                            border: "1px solid #E5E7EB",
+                            borderRadius: 8,
+                            padding: "6px 12px",
+                            fontSize: "0.76rem",
+                            fontWeight: 600,
+                            color: "#374151",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditRelease(rel)}
+                          style={{
+                            background: "#F3F4F6",
+                            border: "1px solid #E5E7EB",
+                            borderRadius: 8,
+                            padding: "6px 10px",
+                            fontSize: "0.76rem",
+                            color: "#374151",
+                            cursor: "pointer",
+                          }}
+                          title="Edit Release"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        {!isCur && (
+                          <button
+                            onClick={() => handleMarkCurrentRelease(rel.id)}
+                            style={{
+                              background: "#EFF6FF",
+                              border: "1px solid #BFDBFE",
+                              borderRadius: 8,
+                              padding: "6px 10px",
+                              fontSize: "0.75rem",
+                              fontWeight: 700,
+                              color: "#1D4ED8",
+                              cursor: "pointer",
+                            }}
+                            title="Set as Current Production Release"
+                          >
+                            Set Current
+                          </button>
+                        )}
+                        {!isCur && (
+                          <button
+                            onClick={() => handleDeleteRelease(rel.id, rel.version)}
+                            style={{
+                              background: "#FEF2F2",
+                              border: "1px solid #FCA5A5",
+                              borderRadius: 8,
+                              padding: "6px 10px",
+                              fontSize: "0.76rem",
+                              color: "#DC2626",
+                              cursor: "pointer",
+                            }}
+                            title="Delete Release"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ====================================================== */}
       {/* MODAL: CREATE / EDIT VEHICLE                           */}
       {/* ====================================================== */}
       {showVehicleModal && (
@@ -1239,6 +1588,98 @@ export default function AdminPanel() {
                 <button type="submit" style={{ padding: "7px 14px", borderRadius: 8, background: "#FF4D00", color: "#FFF", border: "none", fontWeight: 700 }}>Add Module</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ====================================================== */}
+      {/* MODAL: CREATE / EDIT RELEASE                           */}
+      {/* ====================================================== */}
+      {showReleaseModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#FFF", borderRadius: 16, padding: 20, width: "100%", maxWidth: 460, border: "1px solid #E5E7EB" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontSize: "1.05rem", fontWeight: 800, margin: 0 }}>{editingRelease ? `Edit Version v${editingRelease.version}` : "Record New Release"}</h3>
+              <button onClick={() => setShowReleaseModal(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleSaveRelease}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <div>
+                  <label style={{ fontSize: "0.78rem", fontWeight: 600, display: "block", marginBottom: 4 }}>Version (e.g. 1.4.0)</label>
+                  <input type="text" required placeholder="1.4.0" value={releaseFormData.version} onChange={(e) => setReleaseFormData({ ...releaseFormData, version: e.target.value })} style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #E5E7EB", background: "#F9FAFB" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: "0.78rem", fontWeight: 600, display: "block", marginBottom: 4 }}>Release Type</label>
+                  <select value={releaseFormData.release_type} onChange={(e) => setReleaseFormData({ ...releaseFormData, release_type: e.target.value })} style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #E5E7EB", background: "#F9FAFB" }}>
+                    <option value="major">Major (v2.0.0)</option>
+                    <option value="minor">Minor (v1.4.0)</option>
+                    <option value="patch">Patch (v1.3.1)</option>
+                    <option value="hotfix">Hotfix (v1.3.2)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: "0.78rem", fontWeight: 600, display: "block", marginBottom: 4 }}>Release Title</label>
+                <input type="text" required placeholder="e.g. Maintenance Dashboard Update" value={releaseFormData.title} onChange={(e) => setReleaseFormData({ ...releaseFormData, title: e.target.value })} style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #E5E7EB", background: "#F9FAFB" }} />
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: "0.78rem", fontWeight: 600, display: "block", marginBottom: 4 }}>Release Date</label>
+                <input type="date" value={releaseFormData.release_date} onChange={(e) => setReleaseFormData({ ...releaseFormData, release_date: e.target.value })} style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #E5E7EB", background: "#F9FAFB" }} />
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: "0.78rem", fontWeight: 600, display: "block", marginBottom: 4 }}>Release Notes / Bullet Points</label>
+                <textarea rows={4} placeholder="• Improved maintenance status&#10;• Added PWA update detection&#10;• Performance optimizations" value={releaseFormData.description} onChange={(e) => setReleaseFormData({ ...releaseFormData, description: e.target.value })} style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #E5E7EB", background: "#F9FAFB", fontSize: "0.82rem" }} />
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                <input type="checkbox" id="mark_is_current" checked={releaseFormData.is_current} onChange={(e) => setReleaseFormData({ ...releaseFormData, is_current: e.target.checked })} />
+                <label htmlFor="mark_is_current" style={{ fontSize: "0.8rem", fontWeight: 600, cursor: "pointer" }}>Mark as Current Production Release</label>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" onClick={() => setShowReleaseModal(false)} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #E5E7EB", background: "none" }}>Cancel</button>
+                <button type="submit" style={{ padding: "8px 16px", borderRadius: 8, background: "#FF4D00", color: "#FFF", border: "none", fontWeight: 700 }}>Save Release</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================== */}
+      {/* MODAL: RELEASE DETAILS VIEW                            */}
+      {/* ====================================================== */}
+      {showReleaseDetailsModal && selectedReleaseDetails && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#FFF", borderRadius: 16, padding: 20, width: "100%", maxWidth: 440, border: "1px solid #E5E7EB" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: "1.2rem", fontWeight: 900, color: "#111827" }}>v{selectedReleaseDetails.version}</span>
+                <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: "#EFF6FF", color: "#1D4ED8", textTransform: "capitalize" }}>
+                  {selectedReleaseDetails.release_type || "minor"}
+                </span>
+              </div>
+              <button onClick={() => setShowReleaseDetailsModal(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
+            </div>
+
+            <h4 style={{ fontSize: "0.95rem", fontWeight: 800, color: "#1F2937", margin: "0 0 10px 0" }}>{selectedReleaseDetails.title}</h4>
+
+            <div style={{ fontSize: "0.78rem", color: "#6B7280", marginBottom: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, background: "#F9FAFB", padding: 10, borderRadius: 10 }}>
+              <div><strong>Released:</strong> {new Date(selectedReleaseDetails.release_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</div>
+              <div><strong>Released by:</strong> {selectedReleaseDetails.created_by || "Admin"}</div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#374151", marginBottom: 6 }}>Changes & Notes:</div>
+              <div style={{ background: "#F9FAFB", padding: 12, borderRadius: 10, fontSize: "0.82rem", color: "#4B5563", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                {selectedReleaseDetails.description || "No specific release notes added."}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowReleaseDetailsModal(false)} style={{ padding: "8px 16px", borderRadius: 8, background: "#111827", color: "#FFF", border: "none", fontWeight: 700 }}>Close</button>
+            </div>
           </div>
         </div>
       )}

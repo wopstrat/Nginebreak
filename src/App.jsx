@@ -18,10 +18,13 @@ import OdometerHistory from "./pages/OdometerHistory";
 import Profile from "./pages/Profile";
 import AdminPanel from "./pages/AdminPanel";
 
+import UpdateBanner from "./components/UpdateBanner";
+
 export default function App() {
   return (
     <GarageProvider>
       <BrowserRouter>
+        <UpdateBanner />
         <Routes>
           {/* ── Public routes (no auth required) ── */}
           <Route path="/login" element={<Login />} />
