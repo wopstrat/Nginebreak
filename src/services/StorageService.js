@@ -1577,6 +1577,287 @@ class StorageService {
       localStorage.setItem(pendingKey, "true");
     }
   }
+
+  // ==========================================
+  // ADMIN PANEL CRUD OPERATIONS
+  // ==========================================
+
+  async getAllUsersAdmin() {
+    const userMap = new Map();
+
+    // 1. Fetch from Supabase profiles table
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data: profiles, error } = await supabase.from("profiles").select("*");
+        if (!error && Array.isArray(profiles)) {
+          for (const p of profiles) {
+            userMap.set(p.id, {
+              id: p.id,
+              email: p.email || "No Email Provided",
+              display_name: p.display_name || p.name || p.email?.split("@")[0] || "Member",
+              avatar_url: p.avatar_url || null,
+              role: p.role || (p.is_admin ? "admin" : "member"),
+              is_admin: !!p.is_admin || p.role === "admin",
+              created_at: p.created_at || new Date().toISOString(),
+              vehicles_count: 0,
+              notification_status: p.notification_permission || "default",
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[StorageService] getAllUsersAdmin profiles query error:", err.message);
+      }
+    }
+
+    // 2. Enrich/Synthesize with active auth user and vehicle owners
+    const authUser = await getCurrentAuthUser();
+    if (authUser && !userMap.has(authUser.id)) {
+      userMap.set(authUser.id, {
+        id: authUser.id,
+        email: authUser.email,
+        display_name: authUser.display_name,
+        avatar_url: authUser.avatar_url,
+        role: "admin",
+        is_admin: true,
+        created_at: new Date().toISOString(),
+        vehicles_count: 0,
+        notification_status: typeof window !== "undefined" && window.Notification ? window.Notification.permission : "granted",
+      });
+    }
+
+    // Count vehicles per user
+    const allVehicles = await this.getAllVehiclesAdmin();
+    for (const v of allVehicles) {
+      const uId = v.user_id || authUser?.id || "guest";
+      if (!userMap.has(uId)) {
+        userMap.set(uId, {
+          id: uId,
+          email: v.owner_email || "User " + uId.substring(0, 6),
+          display_name: v.owner_name || "Garage Member",
+          avatar_url: null,
+          role: "member",
+          is_admin: false,
+          created_at: v.created_at || new Date().toISOString(),
+          vehicles_count: 0,
+          notification_status: "granted",
+        });
+      }
+      const existing = userMap.get(uId);
+      existing.vehicles_count = (existing.vehicles_count || 0) + 1;
+    }
+
+    return Array.from(userMap.values());
+  }
+
+  async updateUserProfileAdmin(userId, updates) {
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase.from("profiles").upsert({
+          id: userId,
+          ...updates,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.error("[StorageService] updateUserProfileAdmin error:", err.message);
+      }
+    }
+    return updates;
+  }
+
+  async getAllVehiclesAdmin() {
+    let cloudVehicles = [];
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data: vList, error } = await supabase.from("vehicles").select("*");
+        if (!error && Array.isArray(vList)) {
+          cloudVehicles = vList;
+        }
+      } catch (err) {
+        console.warn("[StorageService] getAllVehiclesAdmin query error:", err.message);
+      }
+    }
+
+    const localData = await this.getData();
+    const localVehicles = localData.vehicles || [];
+
+    const map = new Map();
+    for (const v of cloudVehicles) {
+      map.set(v.id, v);
+    }
+    for (const v of localVehicles) {
+      if (!map.has(v.id)) {
+        map.set(v.id, v);
+      }
+    }
+
+    return Array.from(map.values()).map((veh) => ({
+      ...veh,
+      name: veh.name || `${veh.year || ''} ${veh.make || ''} ${veh.model || ''}`.trim() || "Vehicle",
+      maintenance_modules: veh.maintenance_modules || [],
+      service_history: veh.service_history || [],
+      members: extractMembersFromVehicle(veh),
+    }));
+  }
+
+  async adminAddVehicle(targetUserId, vehiclePayload) {
+    const vehId = vehiclePayload.id || uuidv4();
+    const newVeh = {
+      id: vehId,
+      user_id: targetUserId,
+      type: vehiclePayload.type || "Car",
+      make: vehiclePayload.make || "Custom",
+      model: vehiclePayload.model || "Vehicle",
+      year: parseInt(vehiclePayload.year) || new Date().getFullYear(),
+      current_odometer: parseInt(vehiclePayload.current_odometer) || 0,
+      notes: vehiclePayload.notes || "",
+      created_at: new Date().toISOString(),
+      maintenance_modules: vehiclePayload.maintenance_modules || [],
+      service_history: vehiclePayload.service_history || [],
+      media: [],
+    };
+
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase.from("vehicles").insert([
+          {
+            id: vehId,
+            user_id: targetUserId,
+            type: newVeh.type,
+            make: newVeh.make,
+            model: newVeh.model,
+            year: newVeh.year,
+            current_odometer: newVeh.current_odometer,
+            notes: newVeh.notes,
+          },
+        ]);
+      } catch (err) {
+        console.error("[StorageService] adminAddVehicle Supabase error:", err.message);
+      }
+    }
+
+    const data = await this.getData();
+    data.vehicles.push(newVeh);
+    await this.saveData(data);
+    return newVeh;
+  }
+
+  async adminUpdateVehicle(vehicleId, updates) {
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase
+          .from("vehicles")
+          .update({
+            make: updates.make,
+            model: updates.model,
+            year: updates.year ? parseInt(updates.year) : undefined,
+            current_odometer: updates.current_odometer !== undefined ? parseInt(updates.current_odometer) : undefined,
+            notes: updates.notes,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", vehicleId);
+      } catch (err) {
+        console.error("[StorageService] adminUpdateVehicle Supabase error:", err.message);
+      }
+    }
+
+    const data = await this.getData();
+    const veh = data.vehicles.find((v) => v.id === vehicleId);
+    if (veh) {
+      Object.assign(veh, updates);
+      await this.saveData(data);
+    }
+    return veh;
+  }
+
+  async adminDeleteVehicle(vehicleId) {
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase.from("vehicles").delete().eq("id", vehicleId);
+        await supabase.from("odometer_history").delete().eq("vehicle_id", vehicleId);
+        await supabase.from("maintenance_modules").delete().eq("vehicle_id", vehicleId);
+        await supabase.from("service_history").delete().eq("vehicle_id", vehicleId);
+      } catch (err) {
+        console.error("[StorageService] adminDeleteVehicle Supabase error:", err.message);
+      }
+    }
+
+    const data = await this.getData();
+    data.vehicles = data.vehicles.filter((v) => v.id !== vehicleId);
+    await this.saveData(data);
+
+    // Track deleted vehicle ID
+    try {
+      const delIds = getDeletedVehicleIds();
+      if (!delIds.includes(vehicleId)) {
+        delIds.push(vehicleId);
+        localStorage.setItem("nginebreak_deleted_vehicle_ids", JSON.stringify(delIds));
+      }
+    } catch (_) {}
+
+    return true;
+  }
+
+  async adminAddMaintenanceModule(vehicleId, moduleData) {
+    const modId = moduleData.id || uuidv4();
+    const newMod = {
+      id: modId,
+      vehicle_id: vehicleId,
+      name: moduleData.name || "Custom Service",
+      category: moduleData.category || "General",
+      interval_km: parseInt(moduleData.interval_km) || 10000,
+      interval_months: parseInt(moduleData.interval_months) || 12,
+      last_service_km: parseInt(moduleData.last_service_km) || 0,
+      last_service_date: moduleData.last_service_date || new Date().toISOString().split("T")[0],
+    };
+
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase.from("maintenance_modules").insert([
+          {
+            id: modId,
+            vehicle_id: vehicleId,
+            name: newMod.name,
+            category: newMod.category,
+            interval_km: newMod.interval_km,
+            interval_months: newMod.interval_months,
+            last_service_km: newMod.last_service_km,
+            last_service_date: newMod.last_service_date,
+          },
+        ]);
+      } catch (err) {
+        console.error("[StorageService] adminAddMaintenanceModule Supabase error:", err.message);
+      }
+    }
+
+    const data = await this.getData();
+    const veh = data.vehicles.find((v) => v.id === vehicleId);
+    if (veh) {
+      if (!veh.maintenance_modules) veh.maintenance_modules = [];
+      veh.maintenance_modules.push(newMod);
+      data.vehicles = recalculateVehicleMaintenance(data.vehicles, vehicleId, veh.current_odometer);
+      await this.saveData(data);
+    }
+    return newMod;
+  }
+
+  async adminDeleteMaintenanceModule(moduleId, vehicleId) {
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        await supabase.from("maintenance_modules").delete().eq("id", moduleId);
+      } catch (err) {
+        console.error("[StorageService] adminDeleteMaintenanceModule Supabase error:", err.message);
+      }
+    }
+
+    const data = await this.getData();
+    const veh = data.vehicles.find((v) => v.id === vehicleId);
+    if (veh) {
+      veh.maintenance_modules = (veh.maintenance_modules || []).filter((m) => m.id !== moduleId);
+      await this.saveData(data);
+    }
+    return true;
+  }
 }
+
 
 export default new StorageService();

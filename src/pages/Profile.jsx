@@ -2,12 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useGarage } from '../context/GarageContext';
 import { STATUS } from '../services/CalculationEngine';
 import {
-  isUserAdmin,
-  isRealAdmin,
-  getAdminViewMode,
   setAdminViewMode,
-  activateAdminMode,
-  deactivateAdminMode,
   getAdminSettings,
   saveAdminSettings,
 } from '../utils/adminAuth';
@@ -159,15 +154,20 @@ function SettingRow({ icon: Icon, label, desc, right, badge }) {
 }
 
 export default function Profile() {
-  const { vehicles, user, currentUser, logout, updateUserProfile } = useGarage();
+  const { vehicles, user, currentUser, logout, updateUserProfile, isRealAdminUser, adminViewMode, adminSettings } = useGarage();
 
   const [showGuideModal, setShowGuideModal] = useState(false);
 
-  // Admin status, view mode, and settings (restricted to configured VITE_ADMIN_EMAIL)
-  const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser, user));
-  const [isAdminView, setIsAdminView] = useState(() => isUserAdmin(currentUser, user));
-  const [adminViewMode, setAdminViewModeState] = useState(() => getAdminViewMode());
-  const [adminSettings, setAdminSettings] = useState(() => getAdminSettings());
+  // Derived: is admin currently viewing in admin mode?
+  const isAdminView = adminViewMode !== 'user' && isRealAdminUser;
+
+  // Local admin settings state — kept local so toggles feel instant
+  const [localAdminSettings, setLocalAdminSettings] = useState(() => getAdminSettings());
+
+  // Keep local settings in sync when context adminSettings update
+  useEffect(() => {
+    setLocalAdminSettings(adminSettings || getAdminSettings());
+  }, [adminSettings]);
 
   // Profile Picture Upload from Gallery
   const avatarInputRef = useRef(null);
@@ -184,25 +184,6 @@ export default function Profile() {
   });
   const [savingBio, setSavingBio] = useState(false);
 
-  // Sync admin state
-  useEffect(() => {
-    setIsRealAdminUser(isRealAdmin(currentUser, user));
-    setIsAdminView(isUserAdmin(currentUser, user));
-    setAdminViewModeState(getAdminViewMode());
-
-    const handleStateChange = () => {
-      setIsRealAdminUser(isRealAdmin(currentUser, user));
-      setIsAdminView(isUserAdmin(currentUser, user));
-      setAdminViewModeState(getAdminViewMode());
-      setAdminSettings(getAdminSettings());
-    };
-    window.addEventListener('admin_state_changed', handleStateChange);
-    window.addEventListener('admin_settings_changed', handleStateChange);
-    return () => {
-      window.removeEventListener('admin_state_changed', handleStateChange);
-      window.removeEventListener('admin_settings_changed', handleStateChange);
-    };
-  }, [currentUser, user]);
 
   // Sync bioForm when user changes
   useEffect(() => {

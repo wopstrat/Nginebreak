@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useGarage } from "../context/GarageContext";
-import { activateAdminMode, DEFAULT_ADMIN_EMAIL } from "../utils/adminAuth";
+import { activateAdminMode } from "../utils/adminAuth";
 import { supabase, isSupabaseConfigured } from "../services/supabaseClient";
 import "./Login.css";
 import {
@@ -77,11 +77,9 @@ export default function Login() {
       // Attempt standard login via Supabase
       await login(form.email, form.password);
 
-      const emailClean = form.email.toLowerCase().trim();
-      const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL || "").toLowerCase().trim();
-      if ((adminEmail && emailClean === adminEmail) || emailClean.includes("admin")) {
-        activateAdminMode(emailClean);
-      }
+      // Activate admin view-mode if this is the configured admin email
+      // activateAdminMode validates against VITE_ADMIN_EMAIL internally
+      activateAdminMode(form.email.trim());
 
       navigate("/");
     } catch (err) {

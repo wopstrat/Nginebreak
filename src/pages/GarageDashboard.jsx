@@ -4,9 +4,6 @@ import { useGarage } from "../context/GarageContext";
 import VehicleFitnessDial from "../components/VehicleFitnessDial";
 import SwipeableVehicleCard from "../components/SwipeableVehicleCard";
 import {
-  isUserAdmin,
-  isRealAdmin,
-  getAdminViewMode,
   setAdminViewMode,
   getAdminSettings,
 } from "../utils/adminAuth";
@@ -42,13 +39,13 @@ export default function GarageDashboard() {
     updateOdometer,
     isOnboardingCompleted,
     setOnboardingCompleted,
+    isRealAdminUser,
+    isAdmin,
+    adminViewMode,
+    adminSettings,
   } = useGarage();
   const navigate = useNavigate();
 
-  const [isRealAdminUser, setIsRealAdminUser] = useState(() => isRealAdmin(currentUser, user));
-  const [isAdmin, setIsAdmin] = useState(() => isUserAdmin(currentUser, user));
-  const [adminViewMode, setAdminViewModeState] = useState(() => getAdminViewMode());
-  const [adminSettings, setAdminSettings] = useState(() => getAdminSettings());
   const [backupExported, setBackupExported] = useState(false);
   const [adminTestNotifSent, setAdminTestNotifSent] = useState(false);
 
@@ -100,25 +97,6 @@ export default function GarageDashboard() {
   const [selectedVehicleForOdo, setSelectedVehicleForOdo] = useState(null);
   const [modalOdoValue, setModalOdoValue] = useState("");
   const [odoSaving, setOdoSaving] = useState(false);
-
-  useEffect(() => {
-    setIsRealAdminUser(isRealAdmin(currentUser, user));
-    setIsAdmin(isUserAdmin(currentUser, user));
-    setAdminViewModeState(getAdminViewMode());
-
-    const handleSync = () => {
-      setIsRealAdminUser(isRealAdmin(currentUser, user));
-      setIsAdmin(isUserAdmin(currentUser, user));
-      setAdminViewModeState(getAdminViewMode());
-      setAdminSettings(getAdminSettings());
-    };
-    window.addEventListener("admin_state_changed", handleSync);
-    window.addEventListener("admin_settings_changed", handleSync);
-    return () => {
-      window.removeEventListener("admin_state_changed", handleSync);
-      window.removeEventListener("admin_settings_changed", handleSync);
-    };
-  }, [currentUser, user]);
 
   const activeVehicle = vehicles[0] || null;
 

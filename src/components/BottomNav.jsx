@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useGarage } from '../context/GarageContext';
 import {
   Home,
   Car,
@@ -11,15 +12,9 @@ import {
   Users,
   Warehouse,
   Hammer,
-  Compass
+  Compass,
+  ShieldCheck
 } from 'lucide-react';
-
-const MAIN_NAV_ITEMS = [
-  { to: '/',            label: 'Home',        icon: Home,        end: true },
-  { to: '/vehicles',    label: 'Vehicles',    icon: Car },
-  { to: '/history',     label: 'Maintenance', icon: Wrench },
-  { to: '/history',     label: 'History',     icon: Clock },
-];
 
 const COMING_SOON_ITEMS = [
   { label: 'Community',      icon: Users },
@@ -28,15 +23,21 @@ const COMING_SOON_ITEMS = [
   { label: 'Discover',       icon: Compass },
 ];
 
-const MOBILE_NAV_ITEMS = [
-  { to: '/',            label: 'Home',        icon: Home,        end: true },
-  { to: '/vehicles',    label: 'Vehicles',    icon: Car },
-  { to: '/add-vehicle', label: 'Add',         icon: PlusCircle },
-  { to: '/history',     label: 'Maintenance', icon: Wrench },
-  { to: '/profile',     label: 'Profile',     icon: User },
-];
-
 export default function BottomNav() {
+  const { isRealAdminUser, adminViewMode } = useGarage();
+
+  // Show Admin tab instead of Add icon if user is an Admin in Admin View
+  const showAdminTab = isRealAdminUser && adminViewMode !== "user";
+
+  const mobileNavItems = [
+    { to: '/',            label: 'Home',        icon: Home,        end: true },
+    { to: '/vehicles',    label: 'Vehicles',    icon: Car },
+    { to: '/add-vehicle', label: 'Add',         icon: PlusCircle },
+    { to: '/history',     label: 'Maintenance', icon: Wrench },
+    ...(showAdminTab ? [{ to: '/admin', label: 'Admin', icon: ShieldCheck }] : []),
+    { to: '/profile',     label: 'Profile',     icon: User },
+  ];
+
   return (
     <>
       {/* ── Sidebar (desktop ≥768px) ─────────────────────── */}
@@ -61,6 +62,18 @@ export default function BottomNav() {
             <Home size={18} />
             Home
           </NavLink>
+
+          {showAdminTab && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+              style={{ color: 'var(--accent-color)', fontWeight: 700 }}
+            >
+              <ShieldCheck size={18} color="var(--accent-color)" />
+              Admin Console
+            </NavLink>
+          )}
+
           <NavLink
             to="/vehicles"
             className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
@@ -125,7 +138,7 @@ export default function BottomNav() {
 
       {/* ── Bottom nav (mobile <768px) ───────────────────── */}
       <nav className="bottom-nav">
-        {MOBILE_NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+        {mobileNavItems.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to + label}
             to={to}
@@ -140,3 +153,4 @@ export default function BottomNav() {
     </>
   );
 }
+

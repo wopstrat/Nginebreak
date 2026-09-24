@@ -1,14 +1,23 @@
 /**
  * Admin Role & System Settings Management for Nginebreak
+ *
+ * SECURITY MODEL:
+ * Admin status is determined exclusively by:
+ *   1. Email exact-match against VITE_ADMIN_EMAIL env variable (set server-side)
+ *   2. Supabase user_metadata.role === "admin"  (set via Supabase dashboard/service-role key only)
+ *   3. Supabase user_metadata.is_admin === true  (same, service-role only)
+ *   4. Database profiles.is_admin === true        (set via Supabase dashboard/RLS policies)
+ *
+ * NEVER grants admin based on:
+ *   - Arbitrary string matching ("admin" in name/email)
+ *   - Anything stored in localStorage alone (localStorage can be spoofed)
  */
 
-const STORAGE_KEY_ADMIN_MODE = "nginebreak_admin_mode";
-const STORAGE_KEY_ADMIN_SETTINGS = "nginebreak_admin_settings";
+const STORAGE_KEY_ADMIN_SETTINGS  = "nginebreak_admin_settings";
 const STORAGE_KEY_ADMIN_VIEW_MODE = "nginebreak_admin_view_mode"; // 'admin' | 'user'
 
-// Admin email MUST be configured via environment variable VITE_ADMIN_EMAIL
-// Never hardcode credentials in source code
-export const DEFAULT_ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || "";
+// ── Resolved only once at module init to prevent tampering ──────────────────
+const ENV_ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || "").toLowerCase().trim();
 
 // Default system-wide settings configurable only by admin
 export const DEFAULT_ADMIN_SETTINGS = {
@@ -21,13 +30,51 @@ export const DEFAULT_ADMIN_SETTINGS = {
   // System feature flags & Beta Testing Mode
   darkMode: false,
   maintenanceMode: false,
-  betaTestingMode: false, // 🧪 Admin & Tester Preview Mode
+  betaTestingMode: false,
   allowGuestMode: true,
   debugLogs: false,
 };
 
 /**
- * Checks if the user is an Admin AND currently in Admin View Mode
+ * isRealAdmin — the single source-of-truth for admin status.
+ *
+ * Checks ONLY verified/server-side sources:
+ *   1. Env email exact match (VITE_ADMIN_EMAIL)
+ *   2. Supabase user_metadata.role === "admin"
+ *   3. Supabase user_metadata.is_admin === true
+ *   4. profiles table is_admin flag (passed in as userProfile)
+ *
+ * Does NOT rely on localStorage (easily spoofed).
+ * Does NOT use fuzzy string matching on email/display_name.
+ */
+export function isRealAdmin(currentUser, userProfile) {
+  if (!currentUser) return false;
+
+  const userEmail = (currentUser.email || "").toLowerCase().trim();
+  const metaRole  = (
+    currentUser.user_metadata?.role ||
+    currentUser.role ||
+    ""
+  ).toLowerCase().trim();
+  const metaIsAdmin = currentUser.user_metadata?.is_admin === true;
+
+  // Check 1: env-configured admin email (exact match only)
+  if (ENV_ADMIN_EMAIL && userEmail === ENV_ADMIN_EMAIL) return true;
+
+  // Check 2: Supabase role metadata set via dashboard or service-role key
+  if (metaRole === "admin") return true;
+
+  // Check 3: explicit is_admin flag in user metadata
+  if (metaIsAdmin) return true;
+
+  // Check 4: profiles table flag (populated server-side via Supabase triggers/policies)
+  if (userProfile?.is_admin === true) return true;
+
+  return false;
+}
+
+/**
+ * isUserAdmin — checks isRealAdmin AND that the admin hasn't switched to user-view mode.
  */
 export function isUserAdmin(currentUser, userProfile) {
   if (!isRealAdmin(currentUser, userProfile)) return false;
@@ -35,75 +82,20 @@ export function isUserAdmin(currentUser, userProfile) {
 }
 
 /**
- * Checks if the user has Admin rights
- * Checks localStorage, currentUser (email, display_name, name, role), and userProfile (name, display_name, email, role)
- */
-export function isRealAdmin(currentUser, userProfile) {
-  // 1. If admin mode is active in localStorage, return true
-  try {
-    if (localStorage.getItem(STORAGE_KEY_ADMIN_MODE) === "true") {
-      return true;
-    }
-  } catch (_) {}
-
-  // 2. Check authenticated user credentials & metadata
-  if (currentUser) {
-    const userEmail = (currentUser.email || "").toLowerCase().trim();
-    const envAdminEmail = (import.meta.env.VITE_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL || "").toLowerCase().trim();
-    const metaName = (
-      currentUser.user_metadata?.display_name ||
-      currentUser.user_metadata?.name ||
-      currentUser.user_metadata?.full_name ||
-      ""
-    ).toLowerCase().trim();
-    const metaRole = (currentUser.user_metadata?.role || currentUser.role || "").toLowerCase().trim();
-
-    if (
-      (envAdminEmail && userEmail === envAdminEmail) ||
-      userEmail.includes("admin") ||
-      metaName.includes("admin") ||
-      metaRole === "admin" ||
-      currentUser?.user_metadata?.is_admin === true ||
-      currentUser?.is_admin === true
-    ) {
-      try {
-        localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
-      } catch (_) {}
-      return true;
-    }
-  }
-
-  // 3. Check userProfile object (from local state / Supabase profiles / context user)
-  if (userProfile) {
-    const profileName = (userProfile.name || userProfile.display_name || "").toLowerCase().trim();
-    const profileEmail = (userProfile.email || "").toLowerCase().trim();
-    const profileRole = (userProfile.role || "").toLowerCase().trim();
-
-    if (
-      profileName.includes("admin") ||
-      profileEmail.includes("admin") ||
-      profileRole === "admin" ||
-      userProfile.is_admin === true
-    ) {
-      try {
-        localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
-      } catch (_) {}
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Get current admin view mode ('admin' or 'user')
+ * Get current admin view mode ('admin' or 'user').
+ * Only meaningful for accounts that are already verified as real admins.
  */
 export function getAdminViewMode() {
-  return localStorage.getItem(STORAGE_KEY_ADMIN_VIEW_MODE) || "admin";
+  try {
+    return localStorage.getItem(STORAGE_KEY_ADMIN_VIEW_MODE) || "admin";
+  } catch (_) {
+    return "admin";
+  }
 }
 
 /**
- * Set admin view mode ('admin' or 'user')
+ * Set admin view mode ('admin' or 'user').
+ * This only affects the UI mode toggle — not actual admin privilege.
  */
 export function setAdminViewMode(mode) {
   try {
@@ -114,7 +106,7 @@ export function setAdminViewMode(mode) {
 }
 
 /**
- * Toggle admin view mode with a single click ('admin' <-> 'user')
+ * Toggle admin view mode between 'admin' and 'user'.
  */
 export function toggleAdminViewMode() {
   const current = getAdminViewMode();
@@ -123,30 +115,35 @@ export function toggleAdminViewMode() {
 }
 
 /**
- * Activate admin mode via authenticated user email
+ * Activate admin UI mode — only after verifying the email matches the env var.
+ * This sets the view-mode pref; it does NOT grant admin rights.
  */
 export function activateAdminMode(authenticatedEmail) {
-  try {
-    localStorage.setItem(STORAGE_KEY_ADMIN_MODE, "true");
-  } catch (_) {}
+  const email = (authenticatedEmail || "").toLowerCase().trim();
+  // Only set admin view-mode pref if the user's email is the configured admin
+  if (!ENV_ADMIN_EMAIL || email !== ENV_ADMIN_EMAIL) {
+    // Allow activation if admin is determined by metadata flags (no env email set)
+    // But do NOT allow if env email is set and it doesn't match
+    if (ENV_ADMIN_EMAIL) return { success: false, reason: "Email mismatch" };
+  }
   setAdminViewMode("admin");
   window.dispatchEvent(new Event("admin_state_changed"));
   return { success: true };
 }
 
 /**
- * Deactivate admin mode completely
+ * Deactivate admin mode (switch to user view).
+ * Does NOT revoke actual admin rights — those are server-determined.
  */
 export function deactivateAdminMode() {
   try {
-    localStorage.removeItem(STORAGE_KEY_ADMIN_MODE);
     localStorage.setItem(STORAGE_KEY_ADMIN_VIEW_MODE, "user");
   } catch (_) {}
   window.dispatchEvent(new Event("admin_state_changed"));
 }
 
 /**
- * Load admin configuration
+ * Load admin configuration from localStorage.
  */
 export function getAdminSettings() {
   try {
@@ -159,7 +156,7 @@ export function getAdminSettings() {
 }
 
 /**
- * Save admin configuration
+ * Save admin configuration to localStorage.
  */
 export function saveAdminSettings(newSettings) {
   try {

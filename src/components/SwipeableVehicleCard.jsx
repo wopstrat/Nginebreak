@@ -62,6 +62,8 @@ export default function SwipeableVehicleCard({ vehicle }) {
   const closeCard = () => {
     setOffsetX(0);
     setIsStuck(false);
+    draggingRef.current = false;
+    setIsDragging(false);
   };
 
   /* ---- MOUSE DRAG ---- */
@@ -84,6 +86,7 @@ export default function SwipeableVehicleCard({ vehicle }) {
     startYRef.current = e.clientY;
     maxDeltaX.current = 0;
     isHorizRef.current = false;
+    maxDeltaX.current = 0;
   };
 
   const onMouseMove = (e) => {
@@ -133,7 +136,12 @@ export default function SwipeableVehicleCard({ vehicle }) {
       e.target.closest(".vehicle-menu-dropdown")
     )
       return;
-    if (isStuck) return;
+
+    // If card is stuck (delete revealed), tap to close it
+    if (isStuck) {
+      closeCard();
+      return;
+    }
 
     draggingRef.current = false;
     startXRef.current = e.touches[0].clientX;
@@ -176,19 +184,11 @@ export default function SwipeableVehicleCard({ vehicle }) {
 
     if (!wasDragging) return;
 
-    if (isStuck) {
-      if (Math.abs(offsetX) < STUCK_OFFSET * 0.4) {
-        closeCard();
-      } else {
-        setOffsetX(offsetX > 0 ? STUCK_OFFSET : -STUCK_OFFSET);
-      }
+    if (Math.abs(offsetX) >= SWIPE_THRESHOLD) {
+      setOffsetX(offsetX > 0 ? STUCK_OFFSET : -STUCK_OFFSET);
+      setIsStuck(true);
     } else {
-      if (Math.abs(offsetX) >= SWIPE_THRESHOLD) {
-        setOffsetX(offsetX > 0 ? STUCK_OFFSET : -STUCK_OFFSET);
-        setIsStuck(true);
-      } else {
-        closeCard();
-      }
+      closeCard();
     }
   };
 
@@ -255,7 +255,7 @@ export default function SwipeableVehicleCard({ vehicle }) {
             title="Delete vehicle"
           >
             <div className="delete-logo-btn">
-              <Trash2 size={20} />
+              <Trash2 size={17} />
             </div>
             <span className="delete-logo-label">Delete</span>
           </div>
@@ -277,7 +277,7 @@ export default function SwipeableVehicleCard({ vehicle }) {
             title="Delete vehicle"
           >
             <div className="delete-logo-btn">
-              <Trash2 size={20} />
+              <Trash2 size={17} />
             </div>
             <span className="delete-logo-label">Delete</span>
           </div>

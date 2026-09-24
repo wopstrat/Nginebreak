@@ -1,7 +1,8 @@
-﻿import React from "react";
+import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { GarageProvider } from "./context/GarageContext";
 import AuthGuard from "./components/AuthGuard";
+import AdminGuard from "./components/AdminGuard";
 import BottomNav from "./components/BottomNav";
 
 // Pages
@@ -15,6 +16,7 @@ import AddMaintenance from "./pages/AddMaintenance";
 import ServiceHistory from "./pages/ServiceHistory";
 import OdometerHistory from "./pages/OdometerHistory";
 import Profile from "./pages/Profile";
+import AdminPanel from "./pages/AdminPanel";
 
 export default function App() {
   return (
@@ -42,6 +44,7 @@ export default function App() {
                       <Route path="/history" element={<ServiceHistory />} />
                       <Route path="/odometer-history/:vehicleId" element={<OdometerHistory />} />
                       <Route path="/profile" element={<Profile />} />
+                      <Route path="/admin" element={<AdminGuard><AdminPanel /></AdminGuard>} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </div>
