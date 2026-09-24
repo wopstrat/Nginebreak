@@ -78,6 +78,10 @@ export default function UpdateBanner() {
   const handleUpdateClick = async () => {
     setUpdating(true);
     await updateService.activateUpdate(swRegistration);
+    // Dismiss the banner after triggering the update.
+    // If the page reloads (SW activated), the banner is naturally gone.
+    // If reload is delayed, this prevents the banner from staying open.
+    setDismissed(true);
   };
 
   const handleLaterClick = () => {
