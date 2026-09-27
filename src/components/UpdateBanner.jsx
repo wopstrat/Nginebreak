@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { registerSW } from "virtual:pwa-register";
 import updateService, {
   compareSemver,
@@ -20,6 +20,10 @@ export default function UpdateBanner() {
   const [showNotes, setShowNotes] = useState(false);
   const [latestRelease, setLatestRelease] = useState(null);
   const [updating, setUpdating] = useState(false);
+
+  // Tracks whether the Service Worker independently confirmed new code is waiting.
+  // This is the ground-truth signal — it must never be overridden by the DB check.
+  const swDetectedRef = useRef(false);
 
   // Evaluate whether a DB release should trigger the banner
   const evaluateRelease = (release) => {
@@ -49,8 +53,14 @@ export default function UpdateBanner() {
       const info = await updateService.checkForUpdates();
       if (info.hasUpdate && info.release) {
         evaluateRelease(info.release);
-      } else {
+      } else if (!swDetectedRef.current) {
+        // Only hide banner if the SW has NOT independently detected new code.
+        // If swDetectedRef is true, new code IS waiting — never suppress it.
         setNeedRefresh(false);
+      } else if (info.release) {
+        // SW confirmed new code, but DB version isn't "newer" than bundle.
+        // Still surface the release record so the banner has version info to show.
+        setLatestRelease(info.release);
       }
     } catch (_) {
       // Fail silently
@@ -65,9 +75,13 @@ export default function UpdateBanner() {
     registerSW({
       onNeedRefresh(registration) {
         console.log("[PWA] New SW waiting detected.");
+        // SW is the authoritative source: new code is waiting.
+        // Always show the banner — do not let the DB check cancel this.
+        swDetectedRef.current = true;
         setSwRegistration(registration);
-        // Check if an admin release actually requires an update prompt
-        checkDbRelease();
+        setDismissed(false);   // Reset any session dismissal — this is genuinely new code
+        setNeedRefresh(true);  // Show banner immediately, don't wait for DB
+        checkDbRelease();      // Enrich banner with DB release info (version, notes)
       },
       onOfflineReady() {
         console.log("[PWA] App offline ready.");
