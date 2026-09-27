@@ -46,6 +46,40 @@ export const STATIC_RELEASES = [
 ];
 
 const STORAGE_KEY_RELEASES = "nginebreak_app_releases_cache";
+const STORAGE_KEY_USER_UPDATED = "nginebreak_user_updated_version";
+const STORAGE_KEY_DISMISSED_SESSION = "nginebreak_dismissed_session_version";
+
+export function getUserUpdatedVersion() {
+  try {
+    return localStorage.getItem(STORAGE_KEY_USER_UPDATED) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+export function setUserUpdatedVersion(version) {
+  try {
+    if (version) {
+      localStorage.setItem(STORAGE_KEY_USER_UPDATED, String(version).trim());
+    }
+  } catch (_) {}
+}
+
+export function getDismissedSessionVersion() {
+  try {
+    return sessionStorage.getItem(STORAGE_KEY_DISMISSED_SESSION) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+export function setDismissedSessionVersion(version) {
+  try {
+    if (version) {
+      sessionStorage.setItem(STORAGE_KEY_DISMISSED_SESSION, String(version).trim());
+    }
+  } catch (_) {}
+}
 
 function getLocalReleases() {
   try {
@@ -160,12 +194,19 @@ class UpdateService {
     try {
       const currentRel = await this.getCurrentRelease();
       const dbVersion = currentRel?.version;
+      const userUpdatedVer = getUserUpdatedVersion();
 
-      const hasUpdate = compareSemver(dbVersion, this.currentVersion) > 0;
+      // Update is available ONLY IF dbVersion is strictly newer than app bundle version
+      // AND user hasn't already updated to this dbVersion or higher
+      const isNewerThanApp = compareSemver(dbVersion, this.currentVersion) > 0;
+      const isNewerThanUserUpdated = !userUpdatedVer || compareSemver(dbVersion, userUpdatedVer) > 0;
+
+      const hasUpdate = isNewerThanApp && isNewerThanUserUpdated;
 
       return {
         hasUpdate,
         runningVersion: this.currentVersion,
+        userUpdatedVersion: userUpdatedVer,
         latestVersion: dbVersion || this.currentVersion,
         release: currentRel,
       };
@@ -173,6 +214,7 @@ class UpdateService {
       return {
         hasUpdate: false,
         runningVersion: this.currentVersion,
+        userUpdatedVersion: getUserUpdatedVersion(),
         latestVersion: this.currentVersion,
         release: null,
       };
@@ -308,9 +350,11 @@ class UpdateService {
    * Admin: Delete release record
    */
   async deleteRelease(id) {
+    const cleanId = String(id || "").replace(/[^a-zA-Z0-9_\-\.]/g, "");
+    if (!cleanId) return false;
     if (supabase) {
       try {
-        await supabase.from("app_releases").delete().or(`id.eq.${id},version.eq.${id}`);
+        await supabase.from("app_releases").delete().or(`id.eq.${cleanId},version.eq.${cleanId}`);
       } catch (err) {
         console.warn("[UpdateService] Supabase delete warning:", err.message);
       }

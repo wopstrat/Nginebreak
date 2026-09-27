@@ -49,25 +49,54 @@ ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.maintenance_modules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.service_history ENABLE ROW LEVEL SECURITY;
 
--- Development / MVP Policy (Allow anon / authenticated read & write for quick testing)
--- NOTE: For production with Supabase Auth, you can restrict to auth.uid() = user_id
-CREATE POLICY "Allow all operations for development anon" 
-    ON public.vehicles 
-    FOR ALL 
-    USING (true) 
-    WITH CHECK (true);
+-- Production Row Level Security Policies
+DROP POLICY IF EXISTS "Allow all operations for development anon" ON public.vehicles;
+DROP POLICY IF EXISTS "Allow all operations for development anon maintenance" ON public.maintenance_modules;
+DROP POLICY IF EXISTS "Allow all operations for development anon service history" ON public.service_history;
 
-CREATE POLICY "Allow all operations for development anon maintenance" 
-    ON public.maintenance_modules 
-    FOR ALL 
-    USING (true) 
-    WITH CHECK (true);
+-- Vehicles: user can only access their own vehicles
+CREATE POLICY "vehicles_user_isolation"
+    ON public.vehicles
+    FOR ALL
+    TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Allow all operations for development anon service history" 
-    ON public.service_history 
-    FOR ALL 
-    USING (true) 
-    WITH CHECK (true);
+-- Maintenance Modules: scoped to vehicles owned by the authenticated user
+CREATE POLICY "maintenance_user_isolation"
+    ON public.maintenance_modules
+    FOR ALL
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.vehicles v
+            WHERE v.id = maintenance_modules.vehicle_id AND v.user_id = auth.uid()
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.vehicles v
+            WHERE v.id = maintenance_modules.vehicle_id AND v.user_id = auth.uid()
+        )
+    );
+
+-- Service History: scoped to vehicles owned by the authenticated user
+CREATE POLICY "service_history_user_isolation"
+    ON public.service_history
+    FOR ALL
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.vehicles v
+            WHERE v.id = service_history.vehicle_id AND v.user_id = auth.uid()
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.vehicles v
+            WHERE v.id = service_history.vehicle_id AND v.user_id = auth.uid()
+        )
+    );
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_vehicles_user ON public.vehicles(user_id);
@@ -78,15 +107,20 @@ CREATE INDEX IF NOT EXISTS idx_history_vehicle ON public.service_history(vehicle
 ALTER TABLE public.vehicles ADD COLUMN IF NOT EXISTS media JSONB DEFAULT '[]'::jsonb;
 
 -- 7. Supabase Storage: 'vehicle-media' Bucket for Photos & Receipts
--- Enables high-performance, compressed image storage
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('vehicle-media', 'vehicle-media', true)
 ON CONFLICT (id) DO NOTHING;
 
-CREATE POLICY "Public vehicle media read access"
+DROP POLICY IF EXISTS "Public vehicle media read access" ON storage.objects;
+DROP POLICY IF EXISTS "Public vehicle media upload access" ON storage.objects;
+DROP POLICY IF EXISTS "Vehicle media read access" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated vehicle media upload access" ON storage.objects;
+
+CREATE POLICY "Vehicle media read access"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'vehicle-media');
 
-CREATE POLICY "Public vehicle media upload access"
+CREATE POLICY "Authenticated vehicle media upload access"
 ON storage.objects FOR INSERT
+TO authenticated
 WITH CHECK (bucket_id = 'vehicle-media');

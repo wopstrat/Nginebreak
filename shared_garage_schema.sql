@@ -1,5 +1,5 @@
 -- ==============================================================================
--- NGINEBREAK — Shared Garage Schema Extension
+-- NGINEBREAK - Shared Garage Schema Extension
 -- Run this in Supabase Dashboard -> SQL Editor -> Run
 -- ==============================================================================
 
@@ -38,21 +38,103 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.garage_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.odometer_history ENABLE ROW LEVEL SECURITY;
 
--- 5. Open dev policies (tighten for production)
+-- 5. Production Row Level Security Policies
 DROP POLICY IF EXISTS "profiles_all" ON public.profiles;
-CREATE POLICY "profiles_all"
-  ON public.profiles FOR ALL
-  USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "profiles_read" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert_own" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update_own" ON public.profiles;
+
+CREATE POLICY "profiles_read" ON public.profiles
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "profiles_insert_own" ON public.profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "profiles_update_own" ON public.profiles
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
 
 DROP POLICY IF EXISTS "garage_members_all" ON public.garage_members;
-CREATE POLICY "garage_members_all"
-  ON public.garage_members FOR ALL
-  USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "garage_members_select" ON public.garage_members;
+DROP POLICY IF EXISTS "garage_members_insert" ON public.garage_members;
+DROP POLICY IF EXISTS "garage_members_delete" ON public.garage_members;
+
+CREATE POLICY "garage_members_select" ON public.garage_members
+  FOR SELECT TO authenticated
+  USING (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = garage_members.vehicle_id AND v.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "garage_members_insert" ON public.garage_members
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = garage_members.vehicle_id AND v.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "garage_members_delete" ON public.garage_members
+  FOR DELETE TO authenticated
+  USING (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = garage_members.vehicle_id AND v.user_id = auth.uid()
+    )
+  );
 
 DROP POLICY IF EXISTS "odometer_history_all" ON public.odometer_history;
-CREATE POLICY "odometer_history_all"
-  ON public.odometer_history FOR ALL
-  USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "odometer_history_select" ON public.odometer_history;
+DROP POLICY IF EXISTS "odometer_history_insert" ON public.odometer_history;
+DROP POLICY IF EXISTS "odometer_history_no_delete" ON public.odometer_history;
+DROP POLICY IF EXISTS "odometer_history_no_update" ON public.odometer_history;
+
+CREATE POLICY "odometer_history_select" ON public.odometer_history
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = odometer_history.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+CREATE POLICY "odometer_history_insert" ON public.odometer_history
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = odometer_history.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+CREATE POLICY "odometer_history_no_delete" ON public.odometer_history
+  FOR DELETE TO authenticated
+  USING (false);
+
+CREATE POLICY "odometer_history_no_update" ON public.odometer_history
+  FOR UPDATE TO authenticated
+  USING (false);
 
 -- 6. Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_garage_members_vehicle ON public.garage_members(vehicle_id);

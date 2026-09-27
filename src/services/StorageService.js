@@ -233,32 +233,26 @@ class StorageService {
         }
       } catch (_) {}
 
-      // 2. Query vehicles: owned vehicles, shared via garage_members, or shared via members list
+      // 2. Query vehicles: owned vehicles or shared via garage_members (server-side scoped)
       let dbVehicles = [];
       try {
         let vehiclesQuery = supabase
           .from("vehicles")
-          .select("*")
-          .order("created_at", { ascending: true });
+          .select("*");
+
+        if (sharedVehicleIds.length > 0) {
+          vehiclesQuery = vehiclesQuery.or(
+            `user_id.eq.${authUser.id},id.in.(${sharedVehicleIds.join(",")})`
+          );
+        } else {
+          vehiclesQuery = vehiclesQuery.eq("user_id", authUser.id);
+        }
+
+        vehiclesQuery = vehiclesQuery.order("created_at", { ascending: true });
 
         const { data: rawVehicles, error: vErr } = await vehiclesQuery;
         if (!vErr && rawVehicles) {
-          dbVehicles = rawVehicles.filter((veh) => {
-            if (deletedIds.includes(veh.id)) return false;
-            // Owned by this user
-            if (veh.user_id === authUser.id) return true;
-            // Shared via garage_members table
-            if (sharedVehicleIds.includes(veh.id)) return true;
-            // Shared via vehicle's member registry (JSONB column, media metadata, or email match)
-            const vMembers = extractMembersFromVehicle(veh);
-            return vMembers.some(
-              (m) =>
-                (m.user_id && authUser.id && m.user_id === authUser.id) ||
-                (m.email &&
-                  authUser.email &&
-                  m.email.toLowerCase() === authUser.email.toLowerCase())
-            );
-          });
+          dbVehicles = rawVehicles.filter((veh) => !deletedIds.includes(veh.id));
         }
       } catch (e) {
         console.warn("[StorageService] Vehicles query warning:", e.message);
@@ -677,20 +671,22 @@ class StorageService {
     const authUser = await getCurrentAuthUser();
     if (isSupabaseConfigured() && supabase) {
       try {
-        await supabase.from("garage_members").delete().eq("vehicle_id", vehicleId).catch(() => {});
-        await supabase.from("odometer_history").delete().eq("vehicle_id", vehicleId).catch(() => {});
-        await supabase.from("service_history").delete().eq("vehicle_id", vehicleId).catch(() => {});
-        await supabase.from("maintenance_modules").delete().eq("vehicle_id", vehicleId).catch(() => {});
-
-        const { error } = await supabase.from("vehicles").delete().eq("id", vehicleId);
-        if (error && authUser?.id) {
-          // If shared member (not owner), remove member row for this user
-          await supabase
-            .from("garage_members")
+        if (authUser?.id) {
+          const { error } = await supabase
+            .from("vehicles")
             .delete()
-            .eq("vehicle_id", vehicleId)
-            .eq("user_id", authUser.id)
-            .catch(() => {});
+            .eq("id", vehicleId)
+            .eq("user_id", authUser.id);
+
+          if (error) {
+            // If user is a shared member rather than owner, remove member row for this user
+            await supabase
+              .from("garage_members")
+              .delete()
+              .eq("vehicle_id", vehicleId)
+              .eq("user_id", authUser.id)
+              .catch(() => {});
+          }
         }
       } catch (err) {
         console.error("[StorageService] Supabase vehicle delete failed:", err.message);

@@ -1,21 +1,16 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { registerSW } from "virtual:pwa-register";
-import updateService, { compareSemver } from "../services/UpdateService";
+import updateService, {
+  compareSemver,
+  getUserUpdatedVersion,
+  setUserUpdatedVersion,
+  getDismissedSessionVersion,
+  setDismissedSessionVersion,
+} from "../services/UpdateService";
 import { supabase } from "../services/supabaseClient";
 import { CURRENT_APP_VERSION } from "../config/version";
 import { RefreshCw, ChevronDown, ChevronUp, X, CheckCircle2 } from "lucide-react";
 import "./UpdateBanner.css";
-
-// Stores the version the user already acted on (dismissed or updated).
-// Only suppresses THAT specific version — newer versions will still show.
-const DISMISSED_VERSION_KEY = "nginebreak_dismissed_version";
-
-function getDismissedVersion() {
-  try { return sessionStorage.getItem(DISMISSED_VERSION_KEY) || ""; } catch (_) { return ""; }
-}
-function setDismissedVersion(version) {
-  try { sessionStorage.setItem(DISMISSED_VERSION_KEY, version); } catch (_) {}
-}
 
 export default function UpdateBanner() {
   const [needRefresh, setNeedRefresh] = useState(false);
@@ -26,33 +21,53 @@ export default function UpdateBanner() {
   const [latestRelease, setLatestRelease] = useState(null);
   const [updating, setUpdating] = useState(false);
 
-  // -----------------------------------------------------------------
   // Evaluate whether a DB release should trigger the banner
-  // -----------------------------------------------------------------
   const evaluateRelease = (release) => {
-    if (!release?.version) return;
+    if (!release?.version) return false;
     const dbVersion = release.version;
 
-    // Only show if DB version is strictly newer than what's running
-    const isNewer = compareSemver(dbVersion, CURRENT_APP_VERSION) > 0;
-    if (!isNewer) return;
+    // Only show if DB version is strictly newer than what's running in app bundle
+    const isNewerThanApp = compareSemver(dbVersion, CURRENT_APP_VERSION) > 0;
+    if (!isNewerThanApp) return false;
 
-    // Don't show if user already dismissed/updated THIS exact version this session
-    const alreadyDismissed = getDismissedVersion() === dbVersion;
-    if (alreadyDismissed) return;
+    // Only show if user has not ALREADY updated to this version or higher
+    const userUpdatedVer = getUserUpdatedVersion();
+    if (userUpdatedVer && compareSemver(dbVersion, userUpdatedVer) <= 0) return false;
+
+    // Don't show if user clicked 'Later' for THIS exact version during this browser session
+    const alreadyDismissedSession = getDismissedSessionVersion() === dbVersion;
+    if (alreadyDismissedSession) return false;
 
     setLatestRelease(release);
     setDismissed(false);
     setNeedRefresh(true);
+    return true;
+  };
+
+  const checkDbRelease = async () => {
+    try {
+      const info = await updateService.checkForUpdates();
+      if (info.hasUpdate && info.release) {
+        evaluateRelease(info.release);
+      } else {
+        setNeedRefresh(false);
+      }
+    } catch (_) {
+      // Fail silently
+    }
   };
 
   useEffect(() => {
-    // 1. Register Service Worker (prompt mode) — detects new SW waiting
+    // 1. Initial DB check on mount
+    checkDbRelease();
+
+    // 2. Register Service Worker (prompt mode) — detects new SW waiting
     registerSW({
       onNeedRefresh(registration) {
         console.log("[PWA] New SW waiting detected.");
         setSwRegistration(registration);
-        setNeedRefresh(true);
+        // Check if an admin release actually requires an update prompt
+        checkDbRelease();
       },
       onOfflineReady() {
         console.log("[PWA] App offline ready.");
@@ -61,22 +76,7 @@ export default function UpdateBanner() {
       },
     });
 
-    // 2. Initial DB check on mount
-    const checkDbRelease = async () => {
-      try {
-        const info = await updateService.checkForUpdates();
-        if (info.hasUpdate) {
-          evaluateRelease(info.release);
-        }
-      } catch (_) {
-        // Fail silently — never break the app
-      }
-    };
-    checkDbRelease();
-
-    // 3. Supabase Realtime — listen for new releases pushed by admin in real time.
-    //    This fires for INSERT and UPDATE on app_releases so active users are
-    //    notified the moment admin marks a new version as current — no page reload needed.
+    // 3. Supabase Realtime — listen for new releases pushed by admin in real time
     let realtimeChannel = null;
     if (supabase) {
       realtimeChannel = supabase
@@ -86,16 +86,9 @@ export default function UpdateBanner() {
           { event: "*", schema: "public", table: "app_releases" },
           async (payload) => {
             const row = payload.new || payload.old;
-            // Only react when a release is being marked as current
             if (!row?.is_current) return;
             console.log("[UpdateBanner] Realtime: new current release →", row.version);
-            // Re-fetch full record from DB and evaluate
-            try {
-              const info = await updateService.checkForUpdates();
-              if (info.hasUpdate) {
-                evaluateRelease(info.release);
-              }
-            } catch (_) {}
+            checkDbRelease();
           }
         )
         .subscribe((status) => {
@@ -111,9 +104,7 @@ export default function UpdateBanner() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // -----------------------------------------------------------------
   // Render guard
-  // -----------------------------------------------------------------
   if (dismissed || (!needRefresh && !offlineReady)) {
     return null;
   }
@@ -140,23 +131,23 @@ export default function UpdateBanner() {
         .filter(Boolean)
     : [];
 
-  // -----------------------------------------------------------------
   // Handlers
-  // -----------------------------------------------------------------
   const handleUpdateClick = async () => {
-    // Record which version was acted on — suppresses THIS version after
-    // reload but allows any future newer version to show through
-    if (latestRelease?.version) {
-      setDismissedVersion(latestRelease.version);
+    const targetVersion = latestRelease?.version;
+    if (targetVersion) {
+      setUserUpdatedVersion(targetVersion);
+      setDismissedSessionVersion(targetVersion);
     }
     setUpdating(true);
     setDismissed(true);
+    setNeedRefresh(false);
     await updateService.activateUpdate(swRegistration);
   };
 
   const handleLaterClick = () => {
-    if (latestRelease?.version) {
-      setDismissedVersion(latestRelease.version);
+    const targetVersion = latestRelease?.version;
+    if (targetVersion) {
+      setDismissedSessionVersion(targetVersion);
     }
     setDismissed(true);
   };

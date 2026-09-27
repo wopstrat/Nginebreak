@@ -16,9 +16,8 @@
 const STORAGE_KEY_ADMIN_SETTINGS  = "nginebreak_admin_settings";
 const STORAGE_KEY_ADMIN_VIEW_MODE = "nginebreak_admin_view_mode"; // 'admin' | 'user'
 
-// ── Resolved only once at module init to prevent tampering ──────────────────
-// Default to repository owner wopstrat@gmail.com if VITE_ADMIN_EMAIL is not passed during production build
-const ENV_ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || "wopstrat@gmail.com").toLowerCase().trim();
+// Resolved from VITE_ADMIN_EMAIL environment variable
+const ENV_ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || "").toLowerCase().trim();
 
 // Default system-wide settings configurable only by admin
 export const DEFAULT_ADMIN_SETTINGS = {
@@ -40,13 +39,13 @@ export const DEFAULT_ADMIN_SETTINGS = {
  * isRealAdmin — the single source-of-truth for admin status.
  *
  * Checks ONLY verified/server-side sources:
- *   1. Env email exact match (VITE_ADMIN_EMAIL or default fallback)
- *   2. Supabase app_metadata / user_metadata role === "admin"
- *   3. Supabase app_metadata / user_metadata is_admin === true
- *   4. profiles table is_admin flag / role === "admin" (passed in as userProfile)
+ *   1. Env email exact match (VITE_ADMIN_EMAIL)
+ *   2. Supabase app_metadata role === "admin" (server-side only)
+ *   3. Supabase app_metadata is_admin === true (server-side only)
+ *   4. profiles table is_admin flag / role === "admin" (database RLS verified)
  *
- * Does NOT rely on localStorage (easily spoofed).
- * Does NOT use fuzzy string matching on email/display_name.
+ * Does NOT rely on client-controlled user_metadata (can be spoofed on signup).
+ * Does NOT rely on localStorage.
  */
 export function isRealAdmin(currentUser, userProfile) {
   if (!currentUser) return false;
@@ -54,23 +53,20 @@ export function isRealAdmin(currentUser, userProfile) {
   const userEmail = (currentUser.email || "").toLowerCase().trim();
   const metaRole = (
     currentUser.app_metadata?.role ||
-    currentUser.user_metadata?.role ||
-    currentUser.role ||
     userProfile?.role ||
     ""
   ).toLowerCase().trim();
   const metaIsAdmin =
     currentUser.app_metadata?.is_admin === true ||
-    currentUser.user_metadata?.is_admin === true ||
     userProfile?.is_admin === true;
 
   // Check 1: env-configured admin email (exact match only)
   if (ENV_ADMIN_EMAIL && userEmail === ENV_ADMIN_EMAIL) return true;
 
-  // Check 2: Supabase role metadata set via dashboard, app_metadata, or profile
+  // Check 2: Supabase server app_metadata role or verified profile role
   if (metaRole === "admin") return true;
 
-  // Check 3: explicit is_admin flag in user metadata, app metadata, or profile
+  // Check 3: explicit is_admin flag in server app_metadata or verified profile
   if (metaIsAdmin) return true;
 
   return false;

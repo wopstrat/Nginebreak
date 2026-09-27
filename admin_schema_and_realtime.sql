@@ -64,6 +64,8 @@ DROP POLICY IF EXISTS "Enable update for admins only" ON public.admin_settings;
 DROP POLICY IF EXISTS "Enable insert for admins only" ON public.admin_settings;
 
 DROP POLICY IF EXISTS "Public profiles read access" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_read" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update_own" ON public.profiles;
 
 DROP POLICY IF EXISTS "Enable read access for all users on app_releases" ON public.app_releases;
 DROP POLICY IF EXISTS "Enable write access for admins on app_releases" ON public.app_releases;
@@ -72,23 +74,36 @@ DROP POLICY IF EXISTS "Enable write access for admins on app_releases" ON public
 CREATE POLICY "Enable read access for all users" ON public.admin_settings FOR SELECT USING (true);
 
 CREATE POLICY "Enable update for admins only" ON public.admin_settings FOR UPDATE USING (
-    auth.jwt() ->> 'email' = 'wopstrat@gmail.com' OR 
+    (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin' OR
+    (auth.jwt() -> 'app_metadata' ->> 'is_admin')::boolean = true OR
     EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND (profiles.is_admin = true OR profiles.role = 'admin'))
 );
 
 CREATE POLICY "Enable insert for admins only" ON public.admin_settings FOR INSERT WITH CHECK (
-    auth.jwt() ->> 'email' = 'wopstrat@gmail.com' OR 
+    (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin' OR
+    (auth.jwt() -> 'app_metadata' ->> 'is_admin')::boolean = true OR
     EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND (profiles.is_admin = true OR profiles.role = 'admin'))
 );
 
--- Profiles Policy
-CREATE POLICY "Public profiles read access" ON public.profiles FOR SELECT USING (true);
+-- Profiles Policies: Authenticated users can view profiles; users can update own profile but cannot self-promote to admin
+CREATE POLICY "profiles_read" ON public.profiles FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "profiles_update_own" ON public.profiles FOR UPDATE TO authenticated
+USING (auth.uid() = id)
+WITH CHECK (
+    auth.uid() = id AND (
+        (is_admin IS NOT TRUE AND role <> 'admin') OR
+        (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin' OR
+        EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.is_admin = true)
+    )
+);
 
 -- App Releases Policies
 CREATE POLICY "Enable read access for all users on app_releases" ON public.app_releases FOR SELECT USING (true);
 
 CREATE POLICY "Enable write access for admins on app_releases" ON public.app_releases FOR ALL USING (
-    auth.jwt() ->> 'email' = 'wopstrat@gmail.com' OR 
+    (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin' OR
+    (auth.jwt() -> 'app_metadata' ->> 'is_admin')::boolean = true OR
     EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND (profiles.is_admin = true OR profiles.role = 'admin'))
 );
 

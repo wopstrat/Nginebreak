@@ -14,16 +14,9 @@ export async function optimizeImage(file, options = {}) {
   const quality = options.quality ?? (isSaver ? 0.82 : 0.88);
 
   return new Promise((resolve, reject) => {
-    // If SVG, no compression needed
-    if (file.type === 'image/svg+xml') {
-      return resolve({
-        blob: file,
-        originalSize: file.size,
-        optimizedSize: file.size,
-        savedPercent: 0,
-        width: null,
-        height: null
-      });
+    // Reject SVG uploads to prevent Stored XSS vulnerabilities
+    if (file.type === 'image/svg+xml' || file.name?.toLowerCase().endsWith('.svg')) {
+      return reject(new Error('SVG format is not allowed for security reasons. Please upload JPG, PNG, or WebP images.'));
     }
 
     const reader = new FileReader();

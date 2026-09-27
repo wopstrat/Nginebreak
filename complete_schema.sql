@@ -24,7 +24,10 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'member';
 -- 3. Automatic Profile Sync Trigger from auth.users
 -- Whenever any user signs up or updates in Supabase Auth, they are automatically in public.profiles
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER 
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
 BEGIN
   INSERT INTO public.profiles (id, display_name, email)
   VALUES (
@@ -38,7 +41,7 @@ BEGIN
     display_name = COALESCE(EXCLUDED.display_name, profiles.display_name);
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -65,6 +68,11 @@ SET search_path = public, auth
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  -- Restrict execution to authenticated users only
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
   -- 1. Try finding in profiles
   RETURN QUERY
   SELECT p.id, p.display_name, p.email
@@ -92,6 +100,9 @@ BEGIN
   END IF;
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.lookup_user_by_email(TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.lookup_user_by_email(TEXT) TO authenticated;
 
 -- 6. Vehicles Table
 CREATE TABLE IF NOT EXISTS public.vehicles (
@@ -168,24 +179,247 @@ ALTER TABLE public.maintenance_modules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.service_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.odometer_history ENABLE ROW LEVEL SECURITY;
 
--- 12. Dev Policies (Permissive policies for development & immediate testing)
+-- 12. Production Row Level Security Policies
+-- PROFILES:
 DROP POLICY IF EXISTS "profiles_dev_all" ON public.profiles;
-CREATE POLICY "profiles_dev_all" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "profiles_read" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert_own" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update_own" ON public.profiles;
 
+CREATE POLICY "profiles_read" ON public.profiles
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "profiles_insert_own" ON public.profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "profiles_update_own" ON public.profiles
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+-- VEHICLES:
 DROP POLICY IF EXISTS "vehicles_dev_all" ON public.vehicles;
-CREATE POLICY "vehicles_dev_all" ON public.vehicles FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "vehicles_select" ON public.vehicles;
+DROP POLICY IF EXISTS "vehicles_insert" ON public.vehicles;
+DROP POLICY IF EXISTS "vehicles_update" ON public.vehicles;
+DROP POLICY IF EXISTS "vehicles_delete" ON public.vehicles;
 
+CREATE POLICY "vehicles_select" ON public.vehicles
+  FOR SELECT TO authenticated
+  USING (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.garage_members gm
+      WHERE gm.vehicle_id = vehicles.id AND gm.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "vehicles_insert" ON public.vehicles
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "vehicles_update" ON public.vehicles
+  FOR UPDATE TO authenticated
+  USING (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.garage_members gm
+      WHERE gm.vehicle_id = vehicles.id AND gm.user_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.garage_members gm
+      WHERE gm.vehicle_id = vehicles.id AND gm.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "vehicles_delete" ON public.vehicles
+  FOR DELETE TO authenticated
+  USING (user_id = auth.uid());
+
+-- GARAGE MEMBERS:
 DROP POLICY IF EXISTS "garage_members_dev_all" ON public.garage_members;
-CREATE POLICY "garage_members_dev_all" ON public.garage_members FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "garage_members_select" ON public.garage_members;
+DROP POLICY IF EXISTS "garage_members_insert" ON public.garage_members;
+DROP POLICY IF EXISTS "garage_members_delete" ON public.garage_members;
 
+CREATE POLICY "garage_members_select" ON public.garage_members
+  FOR SELECT TO authenticated
+  USING (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = garage_members.vehicle_id AND v.user_id = auth.uid()
+    ) OR
+    EXISTS (
+      SELECT 1 FROM public.garage_members gm
+      WHERE gm.vehicle_id = garage_members.vehicle_id AND gm.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "garage_members_insert" ON public.garage_members
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = garage_members.vehicle_id AND v.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "garage_members_delete" ON public.garage_members
+  FOR DELETE TO authenticated
+  USING (
+    user_id = auth.uid() OR
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = garage_members.vehicle_id AND v.user_id = auth.uid()
+    )
+  );
+
+-- MAINTENANCE MODULES:
 DROP POLICY IF EXISTS "maintenance_dev_all" ON public.maintenance_modules;
-CREATE POLICY "maintenance_dev_all" ON public.maintenance_modules FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "maintenance_modules_select" ON public.maintenance_modules;
+DROP POLICY IF EXISTS "maintenance_modules_modify" ON public.maintenance_modules;
 
+CREATE POLICY "maintenance_modules_select" ON public.maintenance_modules
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = maintenance_modules.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+CREATE POLICY "maintenance_modules_modify" ON public.maintenance_modules
+  FOR ALL TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = maintenance_modules.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = maintenance_modules.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+-- SERVICE HISTORY:
 DROP POLICY IF EXISTS "service_history_dev_all" ON public.service_history;
-CREATE POLICY "service_history_dev_all" ON public.service_history FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "service_history_select" ON public.service_history;
+DROP POLICY IF EXISTS "service_history_modify" ON public.service_history;
 
+CREATE POLICY "service_history_select" ON public.service_history
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = service_history.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+CREATE POLICY "service_history_modify" ON public.service_history
+  FOR ALL TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = service_history.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = service_history.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+-- ODOMETER HISTORY:
 DROP POLICY IF EXISTS "odometer_history_dev_all" ON public.odometer_history;
-CREATE POLICY "odometer_history_dev_all" ON public.odometer_history FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "odometer_history_select" ON public.odometer_history;
+DROP POLICY IF EXISTS "odometer_history_insert" ON public.odometer_history;
+DROP POLICY IF EXISTS "odometer_history_no_delete" ON public.odometer_history;
+DROP POLICY IF EXISTS "odometer_history_no_update" ON public.odometer_history;
+
+CREATE POLICY "odometer_history_select" ON public.odometer_history
+  FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = odometer_history.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+CREATE POLICY "odometer_history_insert" ON public.odometer_history
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.vehicles v
+      WHERE v.id = odometer_history.vehicle_id AND (
+        v.user_id = auth.uid() OR
+        EXISTS (
+          SELECT 1 FROM public.garage_members gm
+          WHERE gm.vehicle_id = v.id AND gm.user_id = auth.uid()
+        )
+      )
+    )
+  );
+
+-- Tamper-evident: disallow modification and deletion of odometer history
+CREATE POLICY "odometer_history_no_delete" ON public.odometer_history
+  FOR DELETE TO authenticated
+  USING (false);
+
+CREATE POLICY "odometer_history_no_update" ON public.odometer_history
+  FOR UPDATE TO authenticated
+  USING (false);
 
 -- 13. Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_vehicles_user ON public.vehicles(user_id);
@@ -203,16 +437,23 @@ VALUES ('vehicle-media', 'vehicle-media', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
 DROP POLICY IF EXISTS "Public vehicle media read access" ON storage.objects;
-CREATE POLICY "Public vehicle media read access"
+DROP POLICY IF EXISTS "Public vehicle media upload access" ON storage.objects;
+DROP POLICY IF EXISTS "Public vehicle media delete access" ON storage.objects;
+DROP POLICY IF EXISTS "Vehicle media read access" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated vehicle media upload access" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated vehicle media delete access" ON storage.objects;
+
+-- Anyone can view public vehicle photos
+CREATE POLICY "Vehicle media read access"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'vehicle-media');
 
-DROP POLICY IF EXISTS "Public vehicle media upload access" ON storage.objects;
-CREATE POLICY "Public vehicle media upload access"
-ON storage.objects FOR INSERT
+-- Authenticated users only can upload vehicle media
+CREATE POLICY "Authenticated vehicle media upload access"
+ON storage.objects FOR INSERT TO authenticated
 WITH CHECK (bucket_id = 'vehicle-media');
 
-DROP POLICY IF EXISTS "Public vehicle media delete access" ON storage.objects;
-CREATE POLICY "Public vehicle media delete access"
-ON storage.objects FOR DELETE
+-- Authenticated users can delete vehicle media
+CREATE POLICY "Authenticated vehicle media delete access"
+ON storage.objects FOR DELETE TO authenticated
 USING (bucket_id = 'vehicle-media');

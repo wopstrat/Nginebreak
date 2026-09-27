@@ -10,18 +10,24 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('vehicle-media', 'vehicle-media', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
--- 3. Storage Policies (Allow public view, upload, and delete)
+-- 3. Storage Policies (Allow public view; authenticated upload and delete)
 DROP POLICY IF EXISTS "Public vehicle media read access" ON storage.objects;
-CREATE POLICY "Public vehicle media read access"
+DROP POLICY IF EXISTS "Public vehicle media upload access" ON storage.objects;
+DROP POLICY IF EXISTS "Public vehicle media delete access" ON storage.objects;
+DROP POLICY IF EXISTS "Vehicle media read access" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated vehicle media upload access" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated vehicle media delete access" ON storage.objects;
+
+CREATE POLICY "Vehicle media read access"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'vehicle-media');
 
-DROP POLICY IF EXISTS "Public vehicle media upload access" ON storage.objects;
-CREATE POLICY "Public vehicle media upload access"
+CREATE POLICY "Authenticated vehicle media upload access"
 ON storage.objects FOR INSERT
+TO authenticated
 WITH CHECK (bucket_id = 'vehicle-media');
 
-DROP POLICY IF EXISTS "Public vehicle media delete access" ON storage.objects;
-CREATE POLICY "Public vehicle media delete access"
+CREATE POLICY "Authenticated vehicle media delete access"
 ON storage.objects FOR DELETE
+TO authenticated
 USING (bucket_id = 'vehicle-media');
