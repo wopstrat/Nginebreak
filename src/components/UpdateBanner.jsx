@@ -15,14 +15,17 @@ import "./UpdateBanner.css";
 export default function UpdateBanner() {
   const [needRefresh, setNeedRefresh] = useState(false);
   const [offlineReady, setOfflineReady] = useState(false);
-  const [swRegistration, setSwRegistration] = useState(null);
   const [dismissed, setDismissed] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [latestRelease, setLatestRelease] = useState(null);
   const [updating, setUpdating] = useState(false);
 
+  // Holds the updateServiceWorker() function returned by registerSW().
+  // This is the ONLY correct way to activate a waiting SW via Workbox —
+  // it calls wb.messageSkipWaiting() and waits for controllerchange before reloading.
+  const updateSWRef = useRef(null);
+
   // Tracks whether the Service Worker independently confirmed new code is waiting.
-  // This is the ground-truth signal — it must never be overridden by the DB check.
   const swDetectedRef = useRef(false);
 
   // Evaluate whether a DB release should trigger the banner
@@ -68,20 +71,32 @@ export default function UpdateBanner() {
   };
 
   useEffect(() => {
+    // 0. Clean up _reload parameter from URL if arriving from a hard refresh
+    if (window.location.search.includes("_reload=")) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("_reload");
+        const cleanUrl = url.pathname + (url.search ? url.search : "") + url.hash;
+        window.history.replaceState(null, "", cleanUrl);
+      } catch (_) {}
+    }
+
     // 1. Initial DB check on mount
     checkDbRelease();
 
-    // 2. Register Service Worker (prompt mode) — detects new SW waiting
-    registerSW({
-      onNeedRefresh(registration) {
-        console.log("[PWA] New SW waiting detected.");
+    // 2. Register Service Worker (prompt mode) — detects new SW waiting.
+    // IMPORTANT: registerSW() RETURNS the updateServiceWorker function.
+    // onNeedRefresh is called with NO arguments by vite-plugin-pwa v1.x —
+    // the return value is what must be called to activate the waiting SW.
+    const updateSWFn = registerSW({
+      onNeedRefresh() {
+        console.log("[PWA] New SW waiting detected — new code is ready.");
         // SW is the authoritative source: new code is waiting.
-        // Always show the banner — do not let the DB check cancel this.
+        // Always show the banner immediately.
         swDetectedRef.current = true;
-        setSwRegistration(registration);
-        setDismissed(false);   // Reset any session dismissal — this is genuinely new code
-        setNeedRefresh(true);  // Show banner immediately, don't wait for DB
-        checkDbRelease();      // Enrich banner with DB release info (version, notes)
+        setDismissed(false);  // Reset any session dismissal — this is genuinely new code
+        setNeedRefresh(true); // Show banner right now, don't wait for DB
+        checkDbRelease();     // Enrich banner with DB release notes/version in background
       },
       onOfflineReady() {
         console.log("[PWA] App offline ready.");
@@ -89,6 +104,8 @@ export default function UpdateBanner() {
         setTimeout(() => setOfflineReady(false), 4000);
       },
     });
+    // Store the Workbox updateSW function — this is the correct activation path
+    updateSWRef.current = updateSWFn;
 
     // 3. Supabase Realtime — listen for new releases pushed by admin in real time
     let realtimeChannel = null;
@@ -102,6 +119,14 @@ export default function UpdateBanner() {
             const row = payload.new || payload.old;
             if (!row?.is_current) return;
             console.log("[UpdateBanner] Realtime: new current release →", row.version);
+
+            // Proactively tell the Service Worker to fetch the latest assets from server
+            if ("serviceWorker" in navigator) {
+              navigator.serviceWorker.getRegistrations().then((regs) => {
+                regs.forEach((r) => r.update().catch(() => {}));
+              });
+            }
+
             checkDbRelease();
           }
         )
@@ -153,9 +178,8 @@ export default function UpdateBanner() {
       setDismissedSessionVersion(targetVersion);
     }
     setUpdating(true);
-    setDismissed(true);
-    setNeedRefresh(false);
-    await updateService.activateUpdate(swRegistration);
+    // Pass the Workbox updateSW function — executes SW skipWaiting, clears all caches, and hard refreshes
+    await updateService.activateUpdate(updateSWRef.current);
   };
 
   const handleLaterClick = () => {

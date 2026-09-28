@@ -367,26 +367,69 @@ class UpdateService {
   }
 
   /**
-   * Safely execute SW skipWaiting and reload page
+   * Safely execute SW skipWaiting, unregister stale workers, purge all caches, and hard reload page
    */
-  async activateUpdate(swRegistration) {
+  async activateUpdate(swHandler) {
     try {
-      if (swRegistration && swRegistration.waiting) {
-        swRegistration.waiting.postMessage({ type: "SKIP_WAITING" });
-      }
-
-      if ("caches" in window) {
-        const cacheKeys = await caches.keys();
-        for (const key of cacheKeys) {
-          if (key.includes("workbox") || key.includes("vite") || key.includes("assets")) {
-            await caches.delete(key);
-          }
+      // 1. If swHandler is the updateServiceWorker function returned by registerSW, invoke it
+      if (typeof swHandler === "function") {
+        try {
+          await swHandler(true);
+        } catch (e) {
+          console.warn("[UpdateService] swHandler warning:", e);
+        }
+      } else if (swHandler && swHandler.waiting) {
+        try {
+          swHandler.waiting.postMessage({ type: "SKIP_WAITING" });
+        } catch (e) {
+          console.warn("[UpdateService] sw waiting postMessage warning:", e);
         }
       }
+
+      // 2. Clear all Service Worker registrations so the reload is never intercepted by a stale worker
+      if ("serviceWorker" in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            if (reg.waiting) {
+              reg.waiting.postMessage({ type: "SKIP_WAITING" });
+            }
+            if (reg.installing) {
+              reg.installing.postMessage({ type: "SKIP_WAITING" });
+            }
+            await reg.unregister().catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[UpdateService] ServiceWorker unregister warning:", e);
+        }
+      }
+
+      // 3. Purge ALL CacheStorage caches (Workbox, Vite assets, precache, html)
+      if ("caches" in window) {
+        try {
+          const cacheKeys = await caches.keys();
+          await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+        } catch (e) {
+          console.warn("[UpdateService] Cache delete warning:", e);
+        }
+      }
+
+      // 4. Clear dismissed session version
+      try {
+        sessionStorage.removeItem(STORAGE_KEY_DISMISSED_SESSION);
+      } catch (_) {}
     } catch (e) {
-      console.warn("[UpdateService] Cache cleanup warning:", e);
+      console.warn("[UpdateService] activateUpdate error:", e);
     } finally {
-      window.location.reload();
+      // 5. Guaranteed Hard Refresh: Append cache-busting timestamp so the browser
+      // completely bypasses HTTP disk/memory cache and loads the fresh bundle from server
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("_reload", Date.now().toString());
+        window.location.replace(url.toString());
+      } catch (_) {
+        window.location.reload();
+      }
     }
   }
 }
